@@ -10,18 +10,8 @@ import {
   findingDisplayName,
   findingFileStatusLabel,
   findingIsActive,
-  findingTypeLabel,
 } from "../lib/format";
-
-type Tab = "inventory" | "active" | "deleted" | "risk" | "timeline";
-
-const TAB_LABELS: Record<Tab, string> = {
-  inventory: "Нийт файл",
-  active: "Идэвхтэй",
-  deleted: "Устгагдсан",
-  risk: "Эрсдэлтэй үнэлгээ",
-  timeline: "Activity Timeline",
-};
+import { activeScanTab } from "../lib/scanTabs";
 
 const EVENT_LABELS: Record<string, string> = {
   M: "Modified — өөрчилсөн",
@@ -33,13 +23,13 @@ const EVENT_LABELS: Record<string, string> = {
 export default function ScanView() {
   const { scanId } = useParams();
   const id = Number(scanId);
-  const [searchParams, setSearchParams] = useSearchParams();
-  const tabParam = searchParams.get("tab") as Tab | null;
+  const [searchParams] = useSearchParams();
+  const tabParam = searchParams.get("tab");
   const [scan, setScan] = useState<Scan | null>(null);
   const [summary, setSummary] = useState<ScanSummary | null>(null);
   const [allFindings, setAllFindings] = useState<Finding[]>([]);
   const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
-  const [tab, setTab] = useState<Tab>(tabParam && TAB_LABELS[tabParam] ? tabParam : "inventory");
+  const tab = activeScanTab(tabParam);
   const { subscribe } = useEvents();
 
   const reload = async () => {
@@ -56,10 +46,6 @@ export default function ScanView() {
   useEffect(() => {
     reload();
   }, [id]);
-
-  useEffect(() => {
-    if (tabParam && TAB_LABELS[tabParam]) setTab(tabParam);
-  }, [tabParam]);
 
   useEffect(() => {
     return subscribe((ev) => {
@@ -121,11 +107,6 @@ export default function ScanView() {
         .sort((a, b) => ((b.meta?.["risk_score"] as number) ?? 0) - ((a.meta?.["risk_score"] as number) ?? 0)),
     [allFindings]
   );
-
-  const switchTab = (next: Tab) => {
-    setTab(next);
-    setSearchParams(next === "inventory" ? {} : { tab: next });
-  };
 
   if (!scan) return <div className="empty">Ачаалж байна…</div>;
 
@@ -194,25 +175,6 @@ export default function ScanView() {
       </div>
 
       <div className="panel">
-        <div className="module-tabs" style={{ marginBottom: 14 }}>
-          {(Object.keys(TAB_LABELS) as Tab[]).map((key) => (
-            <button
-              key={key}
-              className={`btn sm ${tab === key ? "" : "secondary"}`}
-              onClick={() => switchTab(key)}
-            >
-              {TAB_LABELS[key]}
-              {key === "inventory" && counts.total > 0 && <span className="tab-count">{counts.total}</span>}
-              {key === "active" && counts.active > 0 && <span className="tab-count">{counts.active}</span>}
-              {key === "deleted" && counts.deleted > 0 && <span className="tab-count">{counts.deleted}</span>}
-              {key === "risk" && (counts.high + (counts.medium ?? 0)) > 0 && (
-                <span className="tab-count">{counts.high + (counts.medium ?? 0)}</span>
-              )}
-              {key === "timeline" && counts.timeline > 0 && <span className="tab-count">{counts.timeline}</span>}
-            </button>
-          ))}
-        </div>
-
         {tab === "inventory" && (
           <FileInventoryPanel
             findings={allFindings}

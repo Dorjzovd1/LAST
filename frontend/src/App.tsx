@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { NavLink, Route, Routes } from "react-router-dom";
+import { Route, Routes } from "react-router-dom";
 import { api } from "./api/client";
 import type { HealthInfo } from "./api/types";
 import { useEvents } from "./lib/events";
+import SidebarNav from "./components/SidebarNav";
 import Dashboard from "./pages/Dashboard";
 import ScanView from "./pages/ScanView";
 import CaseView from "./pages/CaseView";
@@ -39,11 +40,7 @@ export default function App() {
   return (
     <div className="app">
       <aside className="sidebar">
-        <nav className="nav">
-          <NavLink to="/" end>
-            Хяналтын самбар
-          </NavLink>
-        </nav>
+        <SidebarNav />
       </aside>
 
       <main className="main">
