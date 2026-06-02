@@ -54,6 +54,103 @@ def _epoch_to_dt(value: str) -> datetime | None:
     return datetime.fromtimestamp(ts, tz=timezone.utc)
 
 
+def _parse_istat_datetime(text: str) -> datetime | None:
+    text = text.strip()
+    if not text or text.lower() in ("n/a", "none", "0", "-"):
+        return None
+    cleaned = re.sub(r"\s*\([^)]*\)\s*$", "", text).strip()
+    if "." in cleaned:
+        base, frac = cleaned.split(".", 1)
+        cleaned = f"{base}.{frac[:6].ljust(6, '0')[:6]}"
+    for fmt in (
+        "%Y-%m-%d %H:%M:%S.%f",
+        "%Y-%m-%d %H:%M:%S",
+        "%a %b %d %H:%M:%S %Y",
+    ):
+        try:
+            return datetime.strptime(cleaned, fmt).replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+    return None
+
+
+def get_inode_timestamps(
+    image_path: str,
+    inode: str,
+    byte_offset: int = 0,
+) -> dict[str, datetime | None]:
+    """istat-аар inode-ийн MAC timestamp уншина."""
+    if not inode or not tools.is_available("istat"):
+        return {}
+
+    mft = inode.split("-")[0] if "-" in inode else inode
+    args = ["istat"]
+    if byte_offset:
+        args += ["-o", str(byte_offset // 512)]
+    args += [image_path, mft if mft.isdigit() else inode]
+
+    result = tools.run(args, timeout=60)
+    if not result.ok:
+        return {}
+
+    fields: dict[str, datetime | None] = {
+        "atime": None,
+        "mtime": None,
+        "ctime": None,
+        "crtime": None,
+    }
+    label_map: list[tuple[str, tuple[str, ...]]] = [
+        ("atime", ("accessed", "file accessed", "last accessed")),
+        ("mtime", ("modified", "content modified", "content modify", "data modified")),
+        ("ctime", ("changed", "metadata changed", "metadata modify", "mft modified", "inode modified")),
+        ("crtime", ("created", "file created", "content created")),
+    ]
+    for line in result.stdout.splitlines():
+        if ":" not in line:
+            continue
+        label, _, value = line.partition(":")
+        key_l = label.strip().lower()
+        for field_name, keys in label_map:
+            if any(k in key_l for k in keys):
+                parsed = _parse_istat_datetime(value)
+                if parsed and not fields[field_name]:
+                    fields[field_name] = parsed
+                break
+    return fields
+
+
+def enrich_entry_timestamps(
+    entry: DeletedEntry,
+    image_path: str,
+    byte_offset: int = 0,
+) -> None:
+    """MAC timestamp дутуу бол istat-аар нөхнө."""
+    if all([entry.mtime, entry.atime, entry.ctime, entry.crtime]):
+        return
+    ts = get_inode_timestamps(image_path, entry.inode, byte_offset)
+    if ts.get("mtime") and not entry.mtime:
+        entry.mtime = ts["mtime"]
+    if ts.get("atime") and not entry.atime:
+        entry.atime = ts["atime"]
+    if ts.get("ctime") and not entry.ctime:
+        entry.ctime = ts["ctime"]
+    if ts.get("crtime") and not entry.crtime:
+        entry.crtime = ts["crtime"]
+    if any(ts.values()):
+        entry.meta = {**entry.meta, "mac_source": "istat"}
+
+
+def _merge_pretty_into_body(existing: DeletedEntry, pretty: DeletedEntry) -> None:
+    """Pretty форматын замыг авч, body-ийн timestamp/size-ийг хадгална."""
+    if len(pretty.name) > len(existing.name) or (
+        "/" in pretty.name and "/" not in existing.name
+    ):
+        existing.name = pretty.name
+    if not existing.size and pretty.size:
+        existing.size = pretty.size
+    existing.meta = {**existing.meta, **pretty.meta, "name_source": "fls-pretty"}
+
+
 def tsk_available() -> bool:
     return all(tools.is_available(t) for t in ("fls", "icat"))
 
@@ -136,12 +233,12 @@ def list_deleted(image_path: str, byte_offset: int = 0) -> list[DeletedEntry]:
         if entry.inode not in by_inode:
             by_inode[entry.inode] = entry
         else:
-            # pretty формат ихэвчлэн илүү цэвэр нэр өгнө.
-            existing = by_inode[entry.inode]
-            if len(entry.name) > len(existing.name) or "/" in entry.name:
-                by_inode[entry.inode] = entry
+            _merge_pretty_into_body(by_inode[entry.inode], entry)
 
     entries = list(by_inode.values())
+    for entry in entries:
+        if entry.file_type == "r":
+            enrich_entry_timestamps(entry, image_path, byte_offset)
     logger.info("TSK fls: %d устгагдсан файл (offset=%d)", len(entries), byte_offset)
     return entries
 
@@ -376,8 +473,14 @@ def _mock_deleted(image_path: str) -> list[DeletedEntry]:
             )
     if not entries:
         entries = [
-            DeletedEntry(inode="16-128-1", name="/secret_plan.docx", file_type="r", size=20480, mtime=now, meta={"mock": True}),
-            DeletedEntry(inode="17-128-1", name="/passwords.txt", file_type="r", size=512, mtime=now, meta={"mock": True}),
+            DeletedEntry(
+                inode="16-128-1", name="/secret_plan.docx", file_type="r", size=20480,
+                mtime=now, atime=now, ctime=now, crtime=now, meta={"mock": True},
+            ),
+            DeletedEntry(
+                inode="17-128-1", name="/passwords.txt", file_type="r", size=512,
+                mtime=now, atime=now, ctime=now, crtime=now, meta={"mock": True},
+            ),
         ]
     return entries
 

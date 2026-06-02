@@ -23,6 +23,7 @@ __all__ = [
     "RISK_RULES",
     "RISK_STANDARD",
     "RiskAssessment",
+    "apply_mac_to_finding",
     "assess_risk",
     "build_timeline_events",
     "guess_mime",
@@ -38,6 +39,40 @@ def guess_mime(path: str, file_name: str = "") -> str:
     name = file_name or path
     mime, _ = mimetypes.guess_type(name)
     return mime or "application/octet-stream"
+
+
+def apply_mac_to_finding(
+    finding: Finding,
+    *,
+    mtime: datetime | None = None,
+    atime: datetime | None = None,
+    ctime: datetime | None = None,
+    crtime: datetime | None = None,
+    source: str = "",
+) -> None:
+    """Finding-д MAC timestamp оноож, meta-д backup хадгална."""
+    pairs = (
+        ("mtime", mtime),
+        ("atime", atime),
+        ("ctime", ctime),
+        ("crtime", crtime),
+    )
+    for field, value in pairs:
+        if value is not None and getattr(finding, field) is None:
+            setattr(finding, field, value)
+
+    mac_backup: dict[str, str] = dict((finding.meta or {}).get("mac_timestamps") or {})
+    for field, value in pairs:
+        current = getattr(finding, field)
+        if current is not None:
+            mac_backup[field] = current.isoformat()
+
+    meta = {**(finding.meta or {})}
+    if mac_backup:
+        meta["mac_timestamps"] = mac_backup
+    if source:
+        meta["mac_source"] = source
+    finding.meta = meta
 
 
 def build_timeline_events(finding: Finding) -> list[TimelineEvent]:

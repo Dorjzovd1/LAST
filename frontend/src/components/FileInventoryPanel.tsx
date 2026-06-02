@@ -8,6 +8,7 @@ import {
   findingFileStatusLabel,
   findingIsActive,
   findingIsDownloadable,
+  findingMacDate,
   findingTypeLabel,
 } from "../lib/format";
 import { FindingDetailPanel } from "./FindingDetailPanel";
@@ -121,10 +122,10 @@ export default function FileInventoryPanel({
                     </td>
                     <td>{formatBytes(f.size_bytes)}</td>
                     <td style={{ fontSize: 11 }}>{f.mime_type?.split("/").pop() || "—"}</td>
-                    <td style={{ fontSize: 11 }}>{formatDate(f.crtime)}</td>
-                    <td style={{ fontSize: 11 }}>{formatDate(f.mtime)}</td>
-                    <td style={{ fontSize: 11 }}>{formatDate(f.atime)}</td>
-                    <td style={{ fontSize: 11 }}>{formatDate(f.ctime)}</td>
+                    <td style={{ fontSize: 11 }}>{formatDate(findingMacDate(f, "crtime"))}</td>
+                    <td style={{ fontSize: 11 }}>{formatDate(findingMacDate(f, "mtime"))}</td>
+                    <td style={{ fontSize: 11 }}>{formatDate(findingMacDate(f, "atime"))}</td>
+                    <td style={{ fontSize: 11 }}>{formatDate(findingMacDate(f, "ctime"))}</td>
                     <td>
                       <div className="row-flex">
                         <button className="btn secondary sm" onClick={() => setSelected(f)}>

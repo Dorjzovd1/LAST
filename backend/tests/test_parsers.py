@@ -72,6 +72,64 @@ def test_trashinfo(tmp_path):
     assert art.deleted_time is not None
 
 
+def test_merge_pretty_preserves_mac_timestamps():
+    from datetime import datetime, timezone
+
+    from app.services.tsk import DeletedEntry, _merge_pretty_into_body
+
+    ts = datetime(2024, 3, 10, 12, 0, tzinfo=timezone.utc)
+    body = DeletedEntry(
+        inode="16-128-1",
+        name="/a.txt",
+        file_type="r",
+        size=18,
+        mtime=ts,
+        atime=ts,
+        ctime=ts,
+        crtime=ts,
+        deleted=True,
+    )
+    pretty = DeletedEntry(
+        inode="16-128-1",
+        name="/Turshiltiin file.txt",
+        file_type="r",
+        size=0,
+        deleted=True,
+        meta={"source": "fls-pretty"},
+    )
+    _merge_pretty_into_body(body, pretty)
+    assert body.name == "/Turshiltiin file.txt"
+    assert body.mtime == ts
+    assert body.size == 18
+
+
+def test_parse_istat_datetime():
+    from app.services.tsk import _parse_istat_datetime
+
+    dt = _parse_istat_datetime("2024-03-10 14:00:00.000000000 (UTC)")
+    assert dt is not None
+    assert dt.year == 2024
+    assert dt.hour == 14
+
+
+def test_apply_mac_to_finding():
+    from datetime import datetime, timezone
+
+    from app.models import Finding, FindingType, Severity
+    from app.services.metadata import apply_mac_to_finding
+
+    f = Finding(
+        scan_id=1,
+        finding_type=FindingType.DELETED_FILE,
+        severity=Severity.NORMAL,
+        file_name="a.txt",
+    )
+    ts = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    apply_mac_to_finding(f, mtime=ts, ctime=ts, source="test")
+    assert f.mtime == ts
+    assert f.meta["mac_timestamps"]["mtime"]
+
+
 def test_tsk_fls_pretty_parse():
     from app.services.tsk import _parse_pretty_line
 

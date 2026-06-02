@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from app.config import get_settings
-from app.services import recovery_quality, tools
+from app.services import recovery_quality, tools, tsk
 
 logger = logging.getLogger("rea.named_recovery")
 settings = get_settings()
@@ -31,6 +31,11 @@ class NamedFile:
     recovered_path: str = ""
     source_tool: str = ""
     inode: str = ""
+    mtime: datetime | None = None
+    atime: datetime | None = None
+    ctime: datetime | None = None
+    crtime: datetime | None = None
+    deleted_time: datetime | None = None
     meta: dict = field(default_factory=dict)
 
 
@@ -87,6 +92,18 @@ def scan_ntfs(source_path: str, dest_dir: str) -> list[NamedFile]:
         except ValueError:
             size = 0
 
+        deleted_time = None
+        date_match = re.search(r"(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2})", line)
+        if date_match:
+            try:
+                deleted_time = datetime.strptime(
+                    f"{date_match.group(1)} {date_match.group(2)}",
+                    "%Y-%m-%d %H:%M:%S",
+                ).replace(tzinfo=timezone.utc)
+            except ValueError:
+                deleted_time = None
+
+        mac = tsk.get_inode_timestamps(source_path, inode, 0)
         safe = re.sub(r"[^\w.\-]", "_", _basename(name))[:120]
         out = Path(dest_dir) / f"{inode}_{safe}"
         rec = tools.run(
@@ -114,6 +131,11 @@ def scan_ntfs(source_path: str, dest_dir: str) -> list[NamedFile]:
                 recovered_path=recovered,
                 source_tool="ntfsundelete",
                 inode=inode,
+                mtime=mac.get("mtime"),
+                atime=mac.get("atime"),
+                ctime=mac.get("ctime") or deleted_time,
+                crtime=mac.get("crtime"),
+                deleted_time=deleted_time,
                 meta={
                     "has_original_name": True,
                     "recovery_method": "ntfs_metadata",

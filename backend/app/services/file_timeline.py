@@ -59,6 +59,14 @@ _PATH_HINTS: list[tuple[tuple[str, ...], str]] = [
 ]
 
 
+def _aware_ts(value: datetime | None) -> datetime:
+    if value is None:
+        return datetime.min.replace(tzinfo=timezone.utc)
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value
+
+
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -231,7 +239,7 @@ def build_file_timeline_events(
         if key not in unique or ev.get("source") == "ntfs_mac":
             unique[key] = ev
     events = list(unique.values())
-    events.sort(key=lambda e: e["timestamp"] or datetime.min.replace(tzinfo=timezone.utc))
+    events.sort(key=lambda e: _aware_ts(e["timestamp"]))
 
     # Дарааллын дугаар
     for idx, ev in enumerate(events, start=1):
@@ -267,7 +275,7 @@ def build_file_timeline_narrative(finding: Finding, events: list[dict[str, Any]]
 
 
 def summarize_file_timeline(finding: Finding, events: list[dict[str, Any]]) -> dict[str, Any]:
-    ts_list = [e["timestamp"] for e in events if e.get("timestamp")]
+    ts_list = [_aware_ts(e["timestamp"]) for e in events if e.get("timestamp")]
     return {
         "finding_id": finding.id,
         "file_name": finding.file_name,

@@ -12,6 +12,7 @@ import {
   findingIsActive,
 } from "../lib/format";
 import { activeScanTab } from "../lib/scanTabs";
+import { buildFileTimelineDetail, sortFileSummaries, summarizeFinding } from "../lib/fileTimeline";
 
 const EVENT_LABELS: Record<string, string> = {
   B: "Born — үүссэн",
@@ -215,7 +216,9 @@ export default function ScanView() {
         {tab === "risk" && (
           <RiskTab findings={riskFindings} high={counts.high} medium={counts.medium ?? 0} />
         )}
-        {tab === "timeline" && <TimelineTab scanId={id} />}
+        {tab === "timeline" && (
+          <TimelineTab scanId={id} findings={allFindings} scanStatus={scan.status} />
+        )}
       </div>
     </div>
   );
@@ -281,7 +284,15 @@ function RiskTab({ findings, high, medium }: { findings: Finding[]; high: number
   );
 }
 
-function TimelineTab({ scanId }: { scanId: number }) {
+function TimelineTab({
+  scanId,
+  findings,
+  scanStatus,
+}: {
+  scanId: number;
+  findings: Finding[];
+  scanStatus: Scan["status"];
+}) {
   const [files, setFiles] = useState<FileTimelineSummary[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [detail, setDetail] = useState<FileTimelineDetail | null>(null);
@@ -290,28 +301,47 @@ function TimelineTab({ scanId }: { scanId: number }) {
   const [query, setQuery] = useState("");
   const [reverse, setReverse] = useState(false);
 
+  const fallbackFiles = useMemo(
+    () => sortFileSummaries(findings.map(summarizeFinding)),
+    [findings]
+  );
+
   useEffect(() => {
+    if (fallbackFiles.length > 0) {
+      setFiles(fallbackFiles);
+      setSelectedId((prev) => prev ?? fallbackFiles[0].finding_id);
+    }
     setLoadingFiles(true);
     api
       .scanTimelineFiles(scanId)
       .then((rows) => {
-        setFiles(rows);
-        if (rows.length > 0) setSelectedId(rows[0].finding_id);
+        const list = rows.length > 0 ? sortFileSummaries(rows) : fallbackFiles;
+        setFiles(list);
+        if (list.length > 0) setSelectedId((prev) => prev ?? list[0].finding_id);
+      })
+      .catch(() => {
+        setFiles(fallbackFiles);
+        if (fallbackFiles.length > 0) setSelectedId((prev) => prev ?? fallbackFiles[0].finding_id);
       })
       .finally(() => setLoadingFiles(false));
-  }, [scanId]);
+  }, [scanId, fallbackFiles]);
 
   useEffect(() => {
     if (selectedId == null) {
       setDetail(null);
       return;
     }
+    const finding = findings.find((f) => f.id === selectedId);
     setLoadingDetail(true);
     api
       .findingFileTimeline(selectedId)
       .then(setDetail)
+      .catch(() => {
+        if (finding) setDetail(buildFileTimelineDetail(finding));
+        else setDetail(null);
+      })
       .finally(() => setLoadingDetail(false));
-  }, [selectedId]);
+  }, [selectedId, findings]);
 
   const filteredFiles = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -334,15 +364,21 @@ function TimelineTab({ scanId }: { scanId: number }) {
     return list;
   }, [detail, reverse]);
 
-  if (loadingFiles) {
+  if (loadingFiles && files.length === 0) {
     return <div className="empty">Activity timeline ачаалж байна…</div>;
   }
 
   if (files.length === 0) {
+    if (scanStatus === "running" || scanStatus === "pending") {
+      return (
+        <div className="empty">
+          Scan ажиллаж байна… Дууссаны дараа файл бүрийн activity timeline энд гарна.
+        </div>
+      );
+    }
     return (
       <div className="empty">
-        Activity timeline хоосон — scan дууссаны дараа файл бүрийн MAC (Born/Modified/Accessed/Changed)
-        болон lifecycle үйлдлүүд энд.
+        Энэ scan-д файл илрээгүй. Шинэ scan хийж, Activity Timeline-ийг дахин шалгана уу.
       </div>
     );
   }

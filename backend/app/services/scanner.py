@@ -227,7 +227,7 @@ def _finding_from_entry(scan_id: int, entry: tsk.DeletedEntry) -> Finding:
     path = entry.name.replace("\\", "/")
     file_name = os.path.basename(path.rstrip("/")) or path.lstrip("/") or entry.name
     finding_type = FindingType.DELETED_FILE if entry.deleted else FindingType.ACTIVE_FILE
-    return Finding(
+    finding = Finding(
         scan_id=scan_id,
         finding_type=finding_type,
         file_name=file_name,
@@ -246,6 +246,15 @@ def _finding_from_entry(scan_id: int, entry: tsk.DeletedEntry) -> Finding:
             "recovery_method": "filesystem_metadata",
         },
     )
+    metadata.apply_mac_to_finding(
+        finding,
+        mtime=entry.mtime,
+        atime=entry.atime,
+        ctime=entry.ctime,
+        crtime=entry.crtime,
+        source=entry.meta.get("mac_source", "tsk-fls"),
+    )
+    return finding
 
 
 def _maybe_recover(
@@ -414,6 +423,14 @@ def _run_named_recovery(db, job: ScanJob, source_path: str, fs_type: str) -> int
         prior = by_norm_path.get(norm) or by_inode.get(mft)
 
         if prior:
+            metadata.apply_mac_to_finding(
+                prior,
+                mtime=nf.mtime,
+                atime=nf.atime,
+                ctime=nf.ctime or nf.deleted_time,
+                crtime=nf.crtime,
+                source="ntfsundelete",
+            )
             if nf.recovered_path and not prior.recovered:
                 recovery_quality.apply_recovery_result(
                     prior, nf.recovered_path, nf.source_tool, expected_size=nf.size
@@ -454,6 +471,24 @@ def _run_named_recovery(db, job: ScanJob, source_path: str, fs_type: str) -> int
             pass
         finding.mime_type = metadata.guess_mime(finding.recovered_path, finding.file_name)
         finding.size_bytes = os.path.getsize(finding.recovered_path)
+        metadata.apply_mac_to_finding(
+            finding,
+            mtime=nf.mtime,
+            atime=nf.atime,
+            ctime=nf.ctime or nf.deleted_time,
+            crtime=nf.crtime,
+            source="ntfsundelete",
+        )
+        if nf.inode and not all([finding.mtime, finding.atime, finding.ctime, finding.crtime]):
+            ts = tsk.get_inode_timestamps(source_path, nf.inode, 0)
+            metadata.apply_mac_to_finding(
+                finding,
+                mtime=ts.get("mtime"),
+                atime=ts.get("atime"),
+                ctime=ts.get("ctime"),
+                crtime=ts.get("crtime"),
+                source="istat",
+            )
         _apply_risk(finding)
         db.add(finding)
         count += 1
@@ -516,17 +551,45 @@ def _run_recycle(db, job: ScanJob, mount_point: str | None) -> int:
     artifacts = recycle.scan_recycle(mount_point)
     for art in artifacts:
         file_name = os.path.basename(art.original_path.replace("\\", "/")) or art.original_path
+        ctime = art.deleted_time
+        atime = None
+        crtime = None
+        mtime = art.deleted_time
+        if art.content_path and os.path.exists(art.content_path):
+            try:
+                st = os.stat(art.content_path)
+                atime = datetime.fromtimestamp(st.st_atime, tz=timezone.utc)
+                mtime = datetime.fromtimestamp(st.st_mtime, tz=timezone.utc)
+                crtime = datetime.fromtimestamp(getattr(st, "st_birthtime", st.st_ctime), tz=timezone.utc)
+            except OSError:
+                pass
         finding = Finding(
             scan_id=job.id,
             finding_type=FindingType.RECYCLE_ARTIFACT,
             file_name=file_name,
             original_path=art.original_path,
             size_bytes=art.size,
-            mtime=art.deleted_time,
+            mtime=mtime,
+            atime=atime,
+            ctime=ctime or mtime,
+            crtime=crtime,
             recovered=bool(art.content_path),
             recovered_path=art.content_path,
             source_tool=art.source,
-            meta={**art.meta, "has_original_name": True, "recovery_method": "recycle_artifact"},
+            meta={
+                **art.meta,
+                "has_original_name": True,
+                "recovery_method": "recycle_artifact",
+                "deleted_at": art.deleted_time.isoformat() if art.deleted_time else None,
+            },
+        )
+        metadata.apply_mac_to_finding(
+            finding,
+            mtime=mtime,
+            atime=atime,
+            ctime=ctime or mtime,
+            crtime=crtime,
+            source="recycle_artifact",
         )
         _apply_risk(finding)
         if art.content_path and os.path.exists(art.content_path):

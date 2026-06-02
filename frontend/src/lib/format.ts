@@ -49,6 +49,17 @@ export function findingHasOriginalName(meta: Record<string, unknown> | null | un
   return meta["recovery_method"] === "filesystem_metadata";
 }
 
+/** MAC timestamp — DB талбар эсвэл meta backup-аас. */
+export function findingMacDate(
+  f: { meta?: Record<string, unknown> | null },
+  field: "crtime" | "mtime" | "atime" | "ctime"
+): string | null {
+  const direct = (f as Record<string, string | null | undefined>)[field];
+  if (direct) return direct;
+  const backup = f.meta?.["mac_timestamps"] as Record<string, string> | undefined;
+  return backup?.[field] ?? null;
+}
+
 const TYPE_LABELS: Record<string, string> = {
   active_file: "Идэвхтэй файл",
   deleted_file: "Устгагдсан (Shift+Delete)",
