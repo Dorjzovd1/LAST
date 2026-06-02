@@ -78,6 +78,40 @@ class RiskAssessment:
     overall_impact: ImpactLevel = "low"
     information_types: list[str] = field(default_factory=list)
     standard: str = RISK_STANDARD
+    report: dict = field(default_factory=dict)
+
+
+_FINDING_TYPE_MN: dict[FindingType, str] = {
+    FindingType.ACTIVE_FILE: "Идэвхтэй файл (файлын системд бүртгэлтэй)",
+    FindingType.DELETED_FILE: "Устгагдсан файл (файлын системээс устгасан)",
+    FindingType.CARVED_FILE: "Carving — unallocated space-аас сэргээгдсэн",
+    FindingType.RECYCLE_ARTIFACT: "Recycle Bin / Trash артефакт",
+    FindingType.SLACK_SPACE: "Slack / unallocated space үлдэгдэл",
+}
+
+_SEVERITY_MN: dict[Severity, str] = {
+    Severity.HIGH: "Өндөр түвшин",
+    Severity.MEDIUM: "Дунд түвшин",
+    Severity.NORMAL: "Хэвийн түвшин",
+}
+
+_IMPACT_RATIONALE: dict[str, dict[ImpactLevel, str]] = {
+    "confidentiality": {
+        "low": "Мэдээллийн нууцлалд ноцтой нөлөөлөхгүй эсвэл хязгаарлагдмал.",
+        "moderate": "Хязгаарлагдмал нууц эсвэл дотоод хэрэглээний мэдээлэл агуулж болзошгүй.",
+        "high": "Нууц мэдээлэл, PII, түлхүүр материал эсвэл эмзэг агуулга байх магадлал өндөр.",
+    },
+    "integrity": {
+        "low": "Бүрэн бүтэн байдалд ноцтой аюул байхгүй.",
+        "moderate": "Мэдээлэл өөрчлөгдсөн эсвэл устгах ул мөр илэрсэн болзошгүй.",
+        "high": "Гүйцэтгэх код, түлхүүр материал эсвэл tampering-ийн өндөр эрсдэл.",
+    },
+    "availability": {
+        "low": "Үйлчилгээний байдалд нөлөөлөхгүй.",
+        "moderate": "Тодорхой системд хязгаарлагдмал нөлөө.",
+        "high": "Malware/executable-ийн улмаас системийн ажиллагаанд ноцтой нөлөө.",
+    },
+}
 
 
 def _max_impact(a: ImpactLevel, b: ImpactLevel) -> ImpactLevel:
@@ -243,6 +277,176 @@ def _apply_forensic_context(
     return new_c, new_i, new_a, reasons
 
 
+def _impact_block(key: str, level: ImpactLevel) -> dict:
+    return {
+        "level": level,
+        "label_mn": _IMPACT_MN[level],
+        "label_en": level.upper(),
+        "rationale": _IMPACT_RATIONALE[key][level],
+    }
+
+
+def _recommendations(severity: Severity, finding_type: FindingType, recovered: bool) -> list[str]:
+    recs: list[str] = []
+    if severity == Severity.HIGH:
+        recs.extend([
+            "Тухайн файлыг шинжилгээний эх сурвалжид chain-of-custody журмыг баримтлан хадгалах.",
+            "SHA-256 hash-ийг баталгаажуулж, өөрчлөлтгүй байдлыг тогтмол шалгах.",
+            "Агуулгыг гүнзгий forensic шинжилгээнд (агуулга, metadata, холбоотой artifact) өргөмжлөнө.",
+        ])
+    elif severity == Severity.MEDIUM:
+        recs.extend([
+            "Файлыг хэргийн бусад ул мөртэй (timeline, хэрэглэгчийн үйлдэл) харьцуулж үзнэ.",
+            "Шаардлагатай бол агуулгын урьдчилсан шинжилгээ (preview/hash) хийнэ.",
+        ])
+    else:
+        recs.append("Ердийн каталогчилалын горимд бүртгэж, онцгой шалтгаан гарвал дахин үнэлнэ.")
+
+    if finding_type in (FindingType.DELETED_FILE, FindingType.CARVED_FILE, FindingType.RECYCLE_ARTIFACT):
+        recs.append("Устгах/нуух үйлдлийн ул мөр тул timeline-тай хамт нягтлан судална.")
+    if recovered:
+        recs.append("Сэргээгдсэн агуулгыг тусгаарласан хадгалалтад хадгалж, тайланд hash заавал оруулна.")
+    return recs
+
+
+def build_official_risk_report(
+    *,
+    assessment: RiskAssessment,
+    finding_type: FindingType,
+    file_name: str,
+    original_path: str,
+    recovered: bool,
+    reasons: list[str],
+) -> dict:
+    """Албан ёсны эрсдэлийн үнэлгээний тайлбар (UI/PDF-д)."""
+    ext = os.path.splitext(file_name)[1].lstrip(".").lower() or "—"
+    type_label = _FINDING_TYPE_MN.get(finding_type, finding_type.value)
+    sev_label = _SEVERITY_MN[assessment.severity]
+    c, i, a = assessment.confidentiality, assessment.integrity, assessment.availability
+    overall = assessment.overall_impact
+
+    executive = (
+        f"Шинжилгээний объект болох «{file_name}» ({original_path or '—'}) файлын metadata, "
+        f"мэдээллийн төрөл, forensic контекст ({type_label}) дээр суурилан "
+        f"{RISK_STANDARD} стандартын дагуу автomat эрсдэлийн үнэлгээ хийсэн. "
+        f"FIPS 199 high-water mark аргаар нийт нөлөөллийн түвшин: {_IMPACT_MN[overall]} "
+        f"({sev_label}). FIPS composite оноо: {assessment.score}."
+    )
+
+    conclusion = (
+        f"Дүгнэлт: Файлын эрсдэлийн түвшин — {sev_label}. "
+        f"Нууцлал (C): {_IMPACT_MN[c]}; Бүрэн бүтэн байдал (I): {_IMPACT_MN[i]}; "
+        f"Байдал (A): {_IMPACT_MN[a]}. "
+        f"Энэ үнэлгээ нь файлын нэр, зам, өргөтгөл, илрүүлэлтийн төрөлд суурилсан "
+        f"стандартчилсан triage бөгөөд агуулгын гүн шинжилгээний орлон биш."
+    )
+
+    analysis_steps = [
+        {
+            "step": 1,
+            "title": "Мэдээллийн төрөл тодорхойлох",
+            "standard": "NIST SP 800-60 Rev. 1",
+            "detail": (
+                "Файлын нэр, зам, өргөтгөлөөр NIST SP 800-60-д заасан мэдээллийн "
+                f"ангилал тогтоосон. Илэрсэн төрлүүд: {', '.join(assessment.information_types) or '—'}."
+            ),
+        },
+        {
+            "step": 2,
+            "title": "C/I/A нөлөөллийн үнэлгээ",
+            "standard": "FIPS 199",
+            "detail": (
+                "Нууцлал, бүрэн бүтэн байдал, байдал гэсэн гурван зорилгоор "
+                "LOW / MODERATE / HIGH түвшин тус бүрд оноож, нийт түvшинг "
+                "max(C, I, A) — high-water mark аргаар тогтоосон."
+            ),
+        },
+        {
+            "step": 3,
+            "title": "Forensic контекст",
+            "standard": "NIST SP 800-86",
+            "detail": (
+                f"Илрүүлэлтийн төрөл: {type_label}. "
+                f"Сэргээгдсэн эсэх: {'Тийм' if recovered else 'Үгүй'}. "
+                "Устгасан, carving, recycle, slack зэрэг контекстэд chain-of-custody "
+                "болон шинжилгээний ач холбогдолд нөлөөлнө."
+            ),
+        },
+        {
+            "step": 4,
+            "title": "Эрсдэлийн түвшин холбох",
+            "standard": "FIPS 199 → REA severity",
+            "detail": (
+                f"HIGH → Өндөр; MODERATE → Дунд; LOW → Хэвийн. "
+                f"Энэ файл: {_IMPACT_MN[overall]} → {sev_label}."
+            ),
+        },
+    ]
+
+    return {
+        "document_type": "FORENSIC_RISK_ASSESSMENT_MEMO",
+        "title": "Эрсдэлийн үнэлгээний албан ёсны тайлбар",
+        "standard_framework": RISK_STANDARD,
+        "standard_references": [
+            {
+                "id": "NIST-800-60",
+                "citation": "NIST SP 800-60 Rev. 1",
+                "scope": "Мэдээллийн төрөл → аюулгүй байдлын ангилал",
+            },
+            {
+                "id": "FIPS-199",
+                "citation": "FIPS 199",
+                "scope": "Нууцлал, бүрэн бүтэн байдал, байдал (C/I/A)",
+            },
+            {
+                "id": "NIST-800-86",
+                "citation": "NIST SP 800-86",
+                "scope": "Forensic арга, chain of custody, ул мөрийн контекст",
+            },
+        ],
+        "methodology": (
+            "Энэ систем нь зөөврийн носитол дээрх файлуудыг read-only горимд шинжилж, "
+            "metadata (нэр, зам, MAC цаг, илрүүлэлтийн төрөл) дээр суурилан "
+            "NIST SP 800-60 Rev. 1-ийн мэдээллийн төрөл, FIPS 199-ийн C/I/A нөлөөлөл, "
+            "NIST SP 800-86-ийн forensic контекстийг нэгтгэн automat эрсдэлийн triage гүйцэтгэнэ. "
+            "Үнэлгээ нь субъектив биш, давтагдах, стандартын лавлагаатай байх зорилготой."
+        ),
+        "subject": {
+            "file_name": file_name,
+            "original_path": original_path or "—",
+            "extension": ext,
+            "finding_type": finding_type.value,
+            "finding_type_label": type_label,
+            "recovered": recovered,
+        },
+        "impact_assessment": {
+            "confidentiality": _impact_block("confidentiality", c),
+            "integrity": _impact_block("integrity", i),
+            "availability": _impact_block("availability", a),
+            "overall": {
+                "level": overall,
+                "label_mn": _IMPACT_MN[overall],
+                "method": "FIPS 199 high-water mark (max of C, I, A)",
+            },
+            "fips_composite_score": assessment.score,
+            "severity": assessment.severity.value,
+            "severity_label_mn": sev_label,
+        },
+        "information_types": assessment.information_types,
+        "analysis_steps": analysis_steps,
+        "detailed_findings": reasons,
+        "executive_summary": executive,
+        "conclusion": conclusion,
+        "recommendations": _recommendations(assessment.severity, finding_type, recovered),
+        "disclaimer": (
+            "Анхааруулга: Энэ баримт нь автomat metadata-based triage үр дүн болно. "
+            "Агуулгын дүн шинжилгээ, хууль зүйн дүгнэлт, шинжээчийн эцсийн санал "
+            "биш. Шаардлагатай тохиолдолд агуулгын forensic шинжилгээ, hash баталгаажуулалт, "
+            "chain-of-custody журмыг мөрдөнө."
+        ),
+    }
+
+
 def assess_risk(
     *,
     finding_type: FindingType,
@@ -297,7 +501,7 @@ def assess_risk(
         f"(C={_IMPACT_MN[c]}, I={_IMPACT_MN[i]}, A={_IMPACT_MN[a]})"
     )
 
-    return RiskAssessment(
+    assessment = RiskAssessment(
         severity=severity,
         score=score,
         reasons=reasons,
@@ -308,6 +512,15 @@ def assess_risk(
         information_types=type_names,
         standard=RISK_STANDARD,
     )
+    assessment.report = build_official_risk_report(
+        assessment=assessment,
+        finding_type=finding_type,
+        file_name=file_name,
+        original_path=original_path,
+        recovered=recovered,
+        reasons=reasons,
+    )
+    return assessment
 
 
 # PDF/UI-д харуулах стандартын товч тайлбар.

@@ -19,6 +19,20 @@ def test_carved_bumps_integrity():
     assert r.integrity in ("moderate", "high")
 
 
+def test_official_report_generated():
+    r = assess_risk(
+        finding_type=FindingType.RECYCLE_ARTIFACT,
+        file_name="leak.zip",
+        original_path="/home/suspect/Downloads/leak.zip",
+        recovered=True,
+    )
+    assert r.report
+    assert r.report["title"] == "Эрсдэлийн үнэлгээний албан ёсны тайлбар"
+    assert r.report["executive_summary"]
+    assert len(r.report["analysis_steps"]) >= 4
+    assert len(r.report["recommendations"]) >= 1
+
+
 def test_unclassified_deleted_stays_low():
     r = assess_risk(finding_type=FindingType.DELETED_FILE, file_name="image.bin")
     assert r.overall_impact == "low"

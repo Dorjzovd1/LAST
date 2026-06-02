@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import type { Finding } from "../api/types";
+import RiskOfficialReportModal from "./RiskOfficialReportModal";
 import { formatDate, findingDisplayName, findingFileStatusLabel, findingIsActive, findingIsDownloadable, findingTypeLabel } from "../lib/format";
 
 const SEV_LABEL: Record<string, string> = {
@@ -52,6 +53,7 @@ export function RiskExplanation({ finding }: { finding: Finding }) {
 
 export function FindingDetailPanel({ finding, onClose }: { finding: Finding; onClose: () => void }) {
   const [preview, setPreview] = useState("");
+  const [showRiskReport, setShowRiskReport] = useState(false);
 
   useEffect(() => {
     if (!finding.recovered) return;
@@ -75,6 +77,14 @@ export function FindingDetailPanel({ finding, onClose }: { finding: Finding; onC
       </div>
 
       <RiskExplanation finding={finding} />
+      <div style={{ marginTop: 10 }}>
+        <button type="button" className="btn secondary sm" onClick={() => setShowRiskReport(true)}>
+          Албан ёсны дэлгэрэнгүй тайлбар
+        </button>
+      </div>
+      {showRiskReport && (
+        <RiskOfficialReportModal finding={finding} onClose={() => setShowRiskReport(false)} />
+      )}
       <table style={{ marginTop: 12 }}>
         <tbody>
           <tr><td>Төрөл</td><td>{findingTypeLabel(finding.finding_type)}</td></tr>

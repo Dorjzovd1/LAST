@@ -379,6 +379,7 @@ def _apply_risk(finding: Finding) -> None:
         "risk_integrity": risk.integrity,
         "risk_availability": risk.availability,
         "risk_information_types": risk.information_types,
+        "risk_report": risk.report,
     }
 
 

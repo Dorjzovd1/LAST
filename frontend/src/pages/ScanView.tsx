@@ -3,7 +3,7 @@ import { useParams, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 import type { Finding, Scan, ScanSummary, TimelineEvent } from "../api/types";
 import FileInventoryPanel from "../components/FileInventoryPanel";
-import { RiskExplanation } from "../components/FindingDetailPanel";
+import RiskOfficialReportModal from "../components/RiskOfficialReportModal";
 import { useEvents } from "../lib/events";
 import {
   formatDate,
@@ -263,13 +263,7 @@ function RiskTab({ findings, high, medium }: { findings: Finding[]; high: number
         </table>
       )}
       {selected && (
-        <div className="panel" style={{ marginTop: 16, background: "var(--bg-panel-2)" }}>
-          <div className="row-flex">
-            <h3 style={{ margin: 0 }}>{findingDisplayName(selected.original_path, selected.file_name)}</h3>
-            <button className="btn secondary sm" onClick={() => setSelected(null)}>Хаах</button>
-          </div>
-          <RiskExplanation finding={selected} />
-        </div>
+        <RiskOfficialReportModal finding={selected} onClose={() => setSelected(null)} />
       )}
     </div>
   );
