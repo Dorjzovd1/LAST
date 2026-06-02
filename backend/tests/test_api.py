@@ -132,3 +132,11 @@ def test_recover_download(client):
     dl = client.get(f"/api/findings/{fid}/download")
     assert dl.status_code == 200
     assert len(dl.content) > 0
+
+
+def test_delete_device(client):
+    detected = client.get("/api/devices/detect").json()
+    dev = client.post("/api/devices", json={"dev_path": detected[0]["dev_path"], "case_id": None}).json()
+    assert client.delete(f"/api/devices/{dev['id']}").status_code == 204
+    assert client.get(f"/api/devices/{dev['id']}").status_code == 404
+    assert dev["id"] not in [d["id"] for d in client.get("/api/devices").json()]

@@ -140,6 +140,24 @@ function RegisteredDevices({
     }
   };
 
+  const removeDevice = async (dev: Device) => {
+    const label = dev.name || dev.dev_path;
+    const msg =
+      dev.state === "analyzed"
+        ? `"${label}" төхөөрөмжийг жагсаалтаас устгах уу? Холбоотой scan-үүд бас устана.`
+        : `"${label}" төхөөрөмжийг жагсаалтаас устгах уу?`;
+    if (!confirm(msg)) return;
+    setBusy(`del-${dev.id}`);
+    try {
+      await api.deleteDevice(dev.id);
+      onChanged();
+    } catch (e) {
+      alert("Устгахад алдаа: " + (e as Error).message);
+    } finally {
+      setBusy("");
+    }
+  };
+
   const startScan = async (dev: Device) => {
     setBusy(`scan-${dev.id}`);
     try {
@@ -195,11 +213,18 @@ function RegisteredDevices({
                     )}
                     <button
                       className="btn sm"
-                      disabled={busy === `scan-${d.id}`}
+                      disabled={busy === `scan-${d.id}` || busy === `del-${d.id}`}
                       onClick={() => startScan(d)}
                       title="Read-only TSK — бүх файлын жагсаалт ба MAC цаг"
                     >
                       {busy === `scan-${d.id}` ? "Шинжилж байна…" : "Шинжилгээ хийх"}
+                    </button>
+                    <button
+                      className="btn danger sm"
+                      disabled={busy === `del-${d.id}` || busy === `scan-${d.id}`}
+                      onClick={() => removeDevice(d)}
+                    >
+                      {busy === `del-${d.id}` ? "Устгаж байна…" : "Устгах"}
                     </button>
                   </div>
                 </td>

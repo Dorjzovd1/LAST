@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.core import audit
 from app.database import get_db
-from app.models import Device, DeviceState
+from app.models import Device, DeviceState, ScanJob, ScanStatus
 from app.schemas import DeviceOut, DeviceRegister
 from app.services import device as device_svc
 from app.services import writeblock
@@ -73,3 +73,34 @@ def make_read_only(device_id: int, db: Session = Depends(get_db)) -> Device:
     db.refresh(device)
     audit.record(db, action="set_read_only", target=device.dev_path, case_id=device.case_id)
     return device
+
+
+@router.delete("/{device_id}", status_code=204, summary="Бүртгэлээс төхөөрөмж устгах")
+def delete_device(device_id: int, db: Session = Depends(get_db)) -> None:
+    device = db.get(Device, device_id)
+    if device is None:
+        raise HTTPException(404, "Device олдсонгүй")
+
+    active = (
+        db.query(ScanJob)
+        .filter(
+            ScanJob.device_id == device_id,
+            ScanJob.status.in_([ScanStatus.PENDING, ScanStatus.RUNNING]),
+        )
+        .first()
+    )
+    if active is not None:
+        raise HTTPException(409, "Төхөөрөмжид ажиллаж байгаа scan байна. Эхлээд scan-ийг зогсооно уу.")
+
+    dev_path = device.dev_path
+    case_id = device.case_id
+    scan_count = len(device.scans)
+    db.delete(device)
+    db.commit()
+    audit.record(
+        db,
+        action="device_deleted",
+        target=dev_path,
+        case_id=case_id,
+        detail={"scans_removed": scan_count},
+    )

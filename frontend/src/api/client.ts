@@ -54,6 +54,7 @@ export const api = {
   registerDevice: (dev_path: string, case_id: number | null) =>
     http<Device>("/devices", { method: "POST", body: JSON.stringify({ dev_path, case_id }) }),
   setReadOnly: (id: number) => http<Device>(`/devices/${id}/read-only`, { method: "POST" }),
+  deleteDevice: (id: number) => http<void>(`/devices/${id}`, { method: "DELETE" }),
 
   // Scans
   listScans: () => http<Scan[]>("/scans"),
