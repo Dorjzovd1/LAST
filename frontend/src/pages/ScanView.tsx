@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
-import type { Finding, Scan, ScanSummary, TimelineEvent } from "../api/types";
+import type { Finding, Scan, ScanSummary, TimelineEvent, FileTimelineSummary, FileTimelineDetail } from "../api/types";
 import FileInventoryPanel from "../components/FileInventoryPanel";
 import RiskOfficialReportModal from "../components/RiskOfficialReportModal";
 import { useEvents } from "../lib/events";
@@ -14,10 +14,23 @@ import {
 import { activeScanTab } from "../lib/scanTabs";
 
 const EVENT_LABELS: Record<string, string> = {
+  B: "Born — үүссэн",
   M: "Modified — өөрчилсөн",
   A: "Accessed — хандсан",
-  C: "Changed — метадата",
-  B: "Born — үүссэн",
+  C: "Changed — metadata",
+  DELETE: "Устгагдсан",
+  RECYCLE: "Recycle Bin",
+  DELETED: "Устгагдсан",
+  CARVED: "Carving",
+  ACTIVE: "Идэвхтэй",
+  RECOVERED: "Сэргээсэн",
+  SLACK: "Slack",
+};
+
+const CATEGORY_LABELS: Record<string, string> = {
+  mac: "Үйлдлийн систем (MAC)",
+  forensic: "Forensic",
+  os: "Үйлдлийн систем",
 };
 
 export default function ScanView() {
@@ -202,9 +215,7 @@ export default function ScanView() {
         {tab === "risk" && (
           <RiskTab findings={riskFindings} high={counts.high} medium={counts.medium ?? 0} />
         )}
-        {tab === "timeline" && (
-          <TimelineTab events={timeline} findings={allFindings} />
-        )}
+        {tab === "timeline" && <TimelineTab scanId={id} />}
       </div>
     </div>
   );
@@ -270,72 +281,160 @@ function RiskTab({ findings, high, medium }: { findings: Finding[]; high: number
   );
 }
 
-function TimelineTab({ events, findings }: { events: TimelineEvent[]; findings: Finding[] }) {
-  const [kindFilter, setKindFilter] = useState("");
-  const [reverse, setReverse] = useState(true);
-  const findingMap = useMemo(() => new Map(findings.map((f) => [f.id, f])), [findings]);
+function TimelineTab({ scanId }: { scanId: number }) {
+  const [files, setFiles] = useState<FileTimelineSummary[]>([]);
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [detail, setDetail] = useState<FileTimelineDetail | null>(null);
+  const [loadingFiles, setLoadingFiles] = useState(true);
+  const [loadingDetail, setLoadingDetail] = useState(false);
+  const [query, setQuery] = useState("");
+  const [reverse, setReverse] = useState(false);
 
-  const filtered = useMemo(() => {
-    let list = kindFilter ? events.filter((e) => e.event_type === kindFilter) : events;
-    list = [...list].sort((a, b) => {
+  useEffect(() => {
+    setLoadingFiles(true);
+    api
+      .scanTimelineFiles(scanId)
+      .then((rows) => {
+        setFiles(rows);
+        if (rows.length > 0) setSelectedId(rows[0].finding_id);
+      })
+      .finally(() => setLoadingFiles(false));
+  }, [scanId]);
+
+  useEffect(() => {
+    if (selectedId == null) {
+      setDetail(null);
+      return;
+    }
+    setLoadingDetail(true);
+    api
+      .findingFileTimeline(selectedId)
+      .then(setDetail)
+      .finally(() => setLoadingDetail(false));
+  }, [selectedId]);
+
+  const filteredFiles = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return files;
+    return files.filter(
+      (f) =>
+        f.file_name.toLowerCase().includes(q) ||
+        f.original_path.toLowerCase().includes(q)
+    );
+  }, [files, query]);
+
+  const events = useMemo(() => {
+    if (!detail) return [];
+    const list = [...detail.events];
+    list.sort((a, b) => {
       const ta = new Date(a.timestamp).getTime();
       const tb = new Date(b.timestamp).getTime();
       return reverse ? tb - ta : ta - tb;
     });
     return list;
-  }, [events, kindFilter, reverse]);
+  }, [detail, reverse]);
 
-  if (events.length === 0) {
+  if (loadingFiles) {
+    return <div className="empty">Activity timeline ачаалж байна…</div>;
+  }
+
+  if (files.length === 0) {
     return (
       <div className="empty">
-        Activity timeline хоосон — scan дууссаны дараа бүх файлын MAC (Born/Modified/Accessed/Changed) үйлдлүүд энд.
+        Activity timeline хоосон — scan дууссаны дараа файл бүрийн MAC (Born/Modified/Accessed/Changed)
+        болон lifecycle үйлдлүүд энд.
       </div>
     );
   }
 
   return (
-    <div>
-      <p style={{ color: "var(--text-dim)", fontSize: 12, marginTop: 0 }}>
-        Бүх файлын үйл ажиллагаа — хэзээ үүссэн, өөрчлөгдсөн, хандсан, metadata өөрчлөгдсөн.
-      </p>
-      <div className="filters" style={{ marginBottom: 14 }}>
-        <select value={kindFilter} onChange={(e) => setKindFilter(e.target.value)}>
-          <option value="">Бүх үйлдэл (M/A/C/B)</option>
-          <option value="B">Born — үүссэн</option>
-          <option value="M">Modified — өөрчилсөн</option>
-          <option value="A">Accessed — хандсан</option>
-          <option value="C">Changed — metadata</option>
-        </select>
-        <button className="btn secondary sm" onClick={() => setReverse((r) => !r)}>
-          {reverse ? "↓ Шинэ эхэнд" : "↑ Хуучин эхэнд"}
-        </button>
-        <span style={{ color: "var(--text-dim)", fontSize: 12 }}>{filtered.length} үйлдэл</span>
-      </div>
-      {filtered.map((e) => {
-        const linked = e.finding_id ? findingMap.get(e.finding_id) : undefined;
-        return (
-          <div className="timeline-item" key={e.id}>
-            <div className="timeline-time">{formatDate(e.timestamp)}</div>
-            <div className={`timeline-kind kind-${e.event_type}`} title={EVENT_LABELS[e.event_type]}>
-              {e.event_type}
+    <div className="file-timeline-layout">
+      <aside className="file-timeline-sidebar">
+        <p className="file-timeline-sidebar-title">
+          Файлууд ({filteredFiles.length})
+        </p>
+        <input
+          className="file-timeline-search"
+          placeholder="Файл хайх…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+        <div className="file-timeline-list">
+          {filteredFiles.map((f) => (
+            <button
+              key={f.finding_id}
+              type="button"
+              className={`file-timeline-item${selectedId === f.finding_id ? " active" : ""}`}
+              onClick={() => setSelectedId(f.finding_id)}
+            >
+              <div className="file-timeline-item-name">
+                {findingDisplayName(f.original_path, f.file_name)}
+              </div>
+              <div className="file-timeline-item-meta">
+                <span className={`badge ${f.finding_type === "active_file" ? "status-active" : "status-deleted"}`}>
+                  {findingFileStatusLabel(f.finding_type)}
+                </span>
+                <span className={`badge sev-${f.severity}`}>{f.event_count} үйлдэл</span>
+              </div>
+              {f.last_timestamp && (
+                <div className="file-timeline-item-time">{formatDate(f.last_timestamp)}</div>
+              )}
+            </button>
+          ))}
+        </div>
+      </aside>
+
+      <section className="file-timeline-detail">
+        {loadingDetail || !detail ? (
+          <div className="empty">Файлын timeline ачаалж байна…</div>
+        ) : (
+          <>
+            <div className="file-timeline-detail-head">
+              <div>
+                <h3>{findingDisplayName(detail.original_path, detail.file_name)}</h3>
+                <p className="mono path-cell">{detail.original_path || "—"}</p>
+              </div>
+              <div className="row-flex">
+                <button className="btn secondary sm" onClick={() => setReverse((r) => !r)}>
+                  {reverse ? "↓ Шинэ эхэнд" : "↑ Хуучин эхэнд"}
+                </button>
+              </div>
             </div>
-            <div>
-              <div>{e.description}</div>
-              {linked && (
-                <div style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 4 }}>
-                  <span className={`badge ${findingIsActive(linked.finding_type) ? "status-active" : "status-deleted"}`}>
-                    {findingFileStatusLabel(linked.finding_type)}
-                  </span>
-                  {" · "}
-                  <span className={`badge sev-${linked.severity}`}>{linked.severity}</span>
-                  {" · "}
-                  {linked.original_path || linked.file_name}
-                </div>
+            <p className="file-timeline-narrative">{detail.narrative}</p>
+            <div className="file-timeline-stats">
+              <span className="badge">MAC: {detail.mac_events}</span>
+              <span className="badge">Forensic: {detail.forensic_events}</span>
+              <span className="badge">Нийт: {detail.event_count}</span>
+              {detail.first_timestamp && detail.last_timestamp && (
+                <span style={{ fontSize: 12, color: "var(--text-dim)" }}>
+                  {formatDate(detail.first_timestamp)} → {formatDate(detail.last_timestamp)}
+                </span>
               )}
             </div>
-          </div>
-        );
-      })}
+            <div className="file-timeline-events">
+              {events.map((e) => (
+                <div className="timeline-item file-timeline-event" key={`${e.sequence}-${e.event_type}-${e.timestamp}`}>
+                  <div className="timeline-seq">{e.sequence}</div>
+                  <div className="timeline-time">{formatDate(e.timestamp)}</div>
+                  <div
+                    className={`timeline-kind kind-${e.event_type.charAt(0)} kind-${e.event_type}`}
+                    title={EVENT_LABELS[e.event_type] ?? e.event_type}
+                  >
+                    {e.event_type.length <= 2 ? e.event_type : e.event_type.charAt(0)}
+                  </div>
+                  <div className="timeline-event-body">
+                    <div className="timeline-event-title">
+                      {e.title}
+                      <span className="timeline-cat">{CATEGORY_LABELS[e.category] ?? e.category}</span>
+                    </div>
+                    <div className="timeline-event-desc">{e.description}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </section>
     </div>
   );
 }

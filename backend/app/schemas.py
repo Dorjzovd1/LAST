@@ -144,6 +144,46 @@ class TimelineEventOut(ORMModel):
         return ensure_utc(dt)  # type: ignore[return-value]
 
 
+class FileTimelineEventOut(BaseModel):
+    id: int | None = None
+    sequence: int
+    timestamp: datetime
+    event_type: str
+    category: str
+    title: str
+    description: str
+    source: str
+
+    @field_serializer("timestamp")
+    def _ser_file_tl_ts(self, dt: datetime) -> datetime:
+        return ensure_utc(dt)  # type: ignore[return-value]
+
+
+class FileTimelineSummaryOut(BaseModel):
+    finding_id: int
+    file_name: str
+    original_path: str
+    finding_type: str
+    severity: str
+    mime_type: str
+    size_bytes: int
+    recovered: bool
+    event_count: int
+    mac_events: int
+    forensic_events: int
+    first_timestamp: datetime | None
+    last_timestamp: datetime | None
+
+    @field_serializer("first_timestamp", "last_timestamp")
+    def _ser_file_tl_range(self, dt: datetime | None) -> datetime | None:
+        return _serialize_utc_datetime(dt)
+
+
+class FileTimelineDetailOut(FileTimelineSummaryOut):
+    narrative: str
+    events: list[FileTimelineEventOut]
+
+
 class ScanSummaryOut(BaseModel):
     """Scan-ийн нийт файл, эрсдэл, timeline тойм."""
 

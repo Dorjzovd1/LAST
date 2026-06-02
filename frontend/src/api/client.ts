@@ -10,6 +10,8 @@ import type {
   ScanOptions,
   ScanSummary,
   TimelineEvent,
+  FileTimelineSummary,
+  FileTimelineDetail,
 } from "./types";
 import type { RiskOfficialReport } from "../lib/riskReport";
 
@@ -60,6 +62,7 @@ export const api = {
   getScan: (id: number) => http<Scan>(`/scans/${id}`),
   cancelScan: (id: number) => http<Scan>(`/scans/${id}/cancel`, { method: "POST" }),
   scanTimeline: (id: number) => http<TimelineEvent[]>(`/scans/${id}/timeline`),
+  scanTimelineFiles: (id: number) => http<FileTimelineSummary[]>(`/scans/${id}/timeline/files`),
   scanSummary: (id: number) => http<ScanSummary>(`/scans/${id}/summary`),
 
   // Findings
@@ -73,6 +76,7 @@ export const api = {
   previewFinding: (id: number) =>
     http<{ preview: string; available: boolean; truncated?: boolean }>(`/findings/${id}/preview`),
   findingRiskReport: (id: number) => http<RiskOfficialReport>(`/findings/${id}/risk-report`),
+  findingFileTimeline: (id: number) => http<FileTimelineDetail>(`/findings/${id}/file-timeline`),
   downloadUrl: (id: number) => `${BASE}/findings/${id}/download`,
 
   // Reports

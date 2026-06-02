@@ -101,6 +101,38 @@ export interface TimelineEvent {
   description: string;
 }
 
+export interface FileTimelineSummary {
+  finding_id: number;
+  file_name: string;
+  original_path: string;
+  finding_type: string;
+  severity: string;
+  mime_type: string;
+  size_bytes: number;
+  recovered: boolean;
+  event_count: number;
+  mac_events: number;
+  forensic_events: number;
+  first_timestamp: string | null;
+  last_timestamp: string | null;
+}
+
+export interface FileTimelineEvent {
+  id: number | null;
+  sequence: number;
+  timestamp: string;
+  event_type: string;
+  category: "mac" | "forensic" | "os" | string;
+  title: string;
+  description: string;
+  source: string;
+}
+
+export interface FileTimelineDetail extends FileTimelineSummary {
+  narrative: string;
+  events: FileTimelineEvent[];
+}
+
 export interface AuditLog {
   id: number;
   case_id: number | null;

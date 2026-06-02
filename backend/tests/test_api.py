@@ -97,6 +97,12 @@ def test_full_pipeline(client):
     assert risk.get("examiner_opinion")
     assert risk.get("recommendations_narrative")
 
+    file_tl = client.get(f"/api/scans/{scan['id']}/timeline/files").json()
+    assert len(file_tl) >= 1
+    detail = client.get(f"/api/findings/{findings[0]['id']}/file-timeline").json()
+    assert detail["events"]
+    assert detail["narrative"]
+
     # 9. Audit (chain of custody)
     audit = client.get(f"/api/cases/{case['id']}/audit").json()
     actions = {a["action"] for a in audit}

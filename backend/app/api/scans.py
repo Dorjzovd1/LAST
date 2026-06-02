@@ -10,7 +10,8 @@ from sqlalchemy.orm import Session
 from app.core import audit
 from app.database import get_db
 from app.models import Device, Finding, FindingType, ScanJob, ScanStatus, Severity, TimelineEvent
-from app.schemas import ScanCreate, ScanOut, ScanSummaryOut, TimelineEventOut
+from app.schemas import ScanCreate, ScanOut, ScanSummaryOut, TimelineEventOut, FileTimelineSummaryOut
+from app.services import file_timeline
 from app.services import scanner
 
 router = APIRouter(prefix="/api/scans", tags=["scans"])
@@ -105,3 +106,22 @@ def scan_timeline(scan_id: int, db: Session = Depends(get_db)) -> list[TimelineE
         .order_by(TimelineEvent.timestamp.asc())
         .all()
     )
+
+
+@router.get(
+    "/{scan_id}/timeline/files",
+    response_model=list[FileTimelineSummaryOut],
+    summary="Activity timeline — файл бүрээр бүлэглэсэн",
+)
+def scan_timeline_by_file(scan_id: int, db: Session = Depends(get_db)) -> list[dict]:
+    job = db.get(ScanJob, scan_id)
+    if job is None:
+        raise HTTPException(404, "Scan олдсонгүй")
+    findings = db.query(Finding).filter(Finding.scan_id == scan_id).order_by(Finding.id.asc()).all()
+    timeline = (
+        db.query(TimelineEvent)
+        .filter(TimelineEvent.scan_id == scan_id)
+        .order_by(TimelineEvent.timestamp.asc())
+        .all()
+    )
+    return file_timeline.build_scan_timeline_by_file(findings, timeline)

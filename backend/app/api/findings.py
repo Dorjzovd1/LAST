@@ -9,9 +9,10 @@ from sqlalchemy.orm import Session
 
 from app.core import audit
 from app.database import get_db
-from app.models import Finding, FindingType, Severity
-from app.schemas import FindingOut
+from app.models import Finding, FindingType, Severity, TimelineEvent
+from app.schemas import FindingOut, FileTimelineDetailOut
 from app.services import recovery_quality
+from app.services import file_timeline
 from app.services.risk_assessment import assess_risk
 
 router = APIRouter(prefix="/api/findings", tags=["findings"])
@@ -73,6 +74,24 @@ def download_finding(finding_id: int, db: Session = Depends(get_db)) -> FileResp
         filename=finding.file_name or f"finding_{finding.id}",
         media_type=finding.mime_type or "application/octet-stream",
     )
+
+
+@router.get(
+    "/{finding_id}/file-timeline",
+    response_model=FileTimelineDetailOut,
+    summary="Файлын бүрэн activity timeline (MAC + lifecycle)",
+)
+def finding_file_timeline(finding_id: int, db: Session = Depends(get_db)) -> dict:
+    finding = db.get(Finding, finding_id)
+    if finding is None:
+        raise HTTPException(404, "Finding олдсонгүй")
+    stored = (
+        db.query(TimelineEvent)
+        .filter(TimelineEvent.finding_id == finding_id)
+        .order_by(TimelineEvent.timestamp.asc())
+        .all()
+    )
+    return file_timeline.build_file_timeline_detail(finding, stored)
 
 
 @router.get("/{finding_id}/risk-report", summary="Эрсдэлийн албан ёсны тайлан (NIST/FIPS narrative)")
