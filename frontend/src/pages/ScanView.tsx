@@ -3,7 +3,7 @@ import { useParams, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 import type { Finding, Scan, TimelineEvent } from "../api/types";
 import { useEvents } from "../lib/events";
-import { formatBytes, formatDate, findingDisplayName, findingHasOriginalName, findingIsPermanentDelete, findingTypeLabel } from "../lib/format";
+import { formatBytes, formatDate, findingDisplayName, findingHasOriginalName, findingIsDownloadable, findingIsPermanentDelete, findingTypeLabel } from "../lib/format";
 
 type Tab = "all" | "active" | "deleted" | "timeline" | "risk";
 
@@ -343,10 +343,15 @@ function FindingsTable({ findings, onSelect }: { findings: Finding[]; onSelect: 
                   <button className="btn secondary sm" onClick={() => onSelect(f)}>
                     Дэлгэрэнгүй
                   </button>
-                  {f.recovered && (
+                  {findingIsDownloadable(f) && (
                     <a className="btn sm" href={api.downloadUrl(f.id)}>
                       Татах
                     </a>
+                  )}
+                  {f.recovered && !findingIsDownloadable(f) && (
+                    <span className="badge" style={{ background: "var(--border)", fontSize: 10 }} title="Агуулга бүрэн биш">
+                      нээгдэхгүй
+                    </span>
                   )}
                 </div>
               </td>

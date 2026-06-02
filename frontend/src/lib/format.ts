@@ -44,6 +44,8 @@ export function findingIsPermanentDelete(meta: Record<string, unknown> | null | 
   return meta["delete_method"] === "permanent" || meta["recycle_bypass"] === true;
 }
 
-export function findingTypeLabel(t: string): string {
-  return TYPE_LABELS[t] ?? t;
+export function findingIsDownloadable(f: { recovered: boolean; size_bytes: number; meta?: Record<string, unknown> | null }): boolean {
+  if (!f.recovered) return false;
+  if (f.meta?.["recovery_valid"] === false) return false;
+  return f.size_bytes > 0;
 }

@@ -28,7 +28,7 @@ from app.models import (
     ScanJob,
     ScanStatus,
 )
-from app.services import active_files, carving, metadata, named_recovery, recycle, tsk, writeblock
+from app.services import active_files, carving, metadata, named_recovery, recovery_quality, recycle, tsk, writeblock
 from app.services.hashing import hash_file
 
 logger = logging.getLogger("rea.scanner")
@@ -83,6 +83,10 @@ def run_scan(scan_id: int) -> None:
         _progress(db, job, 28, "Устгагдсан файлууд (TSK + Shift+Delete)")
         for off in byte_offsets:
             for entry in tsk.list_deleted(source_path, off):
+                path = entry.name.replace("\\", "/")
+                file_name = os.path.basename(path.rstrip("/")) or entry.name
+                if recovery_quality.is_junk_recovery_name(file_name, path):
+                    continue
                 f = _finding_from_entry(job.id, entry)
                 f.finding_type = FindingType.DELETED_FILE
                 entry.deleted = True
@@ -247,10 +251,9 @@ def _maybe_recover(
         return
     dest = settings.recovered_dir / f"scan_{finding.scan_id}" / f"{entry.inode.replace('/', '_')}_{finding.file_name}"
     ok = tsk.recover_inode(source_path, entry.inode, str(dest), byte_offset)
-    if ok and os.path.exists(dest):
-        finding.recovered = True
-        finding.recovered_path = str(dest)
-        finding.meta = {**finding.meta, "recovery_tool": "icat"}
+    if ok and recovery_quality.apply_recovery_result(
+        finding, str(dest), "icat", expected_size=entry.size or finding.size_bytes
+    ):
         return
 
     # Shift+Delete NTFS: icat амжилтгүй бол ntfsundelete fallback.
@@ -262,9 +265,9 @@ def _maybe_recover(
                 device.dev_path, fs, device.details or {}
             )
         if named_recovery.recover_ntfs_inode(part, entry.inode, str(dest)):
-            finding.recovered = True
-            finding.recovered_path = str(dest)
-            finding.meta = {**finding.meta, "recovery_tool": "ntfsundelete"}
+            recovery_quality.apply_recovery_result(
+                finding, str(dest), "ntfsundelete", expected_size=entry.size or finding.size_bytes
+            )
 
 
 def _prepare_finding(finding: Finding, *, hash_content: bool = False) -> None:
@@ -365,13 +368,37 @@ def _run_named_recovery(db, job: ScanJob, source_path: str, fs_type: str) -> int
     """ntfsundelete / extundelete — анхны файлын нэр, замтай сэргээлт."""
     dest = settings.recovered_dir / f"scan_{job.id}" / "named"
     named_files = named_recovery.scan_by_filesystem(source_path, fs_type, str(dest))
+    existing = db.query(Finding).filter(Finding.scan_id == job.id).all()
+    by_norm_path = {
+        recovery_quality.normalize_recovery_path(f.original_path or f.file_name): f for f in existing
+    }
+    by_inode = {(f.inode or "").split("-")[0]: f for f in existing if f.inode}
+
     count = 0
     seen: set[str] = set()
     for nf in named_files:
-        key = nf.original_path.lower()
-        if key in seen:
+        if recovery_quality.is_junk_recovery_name(nf.file_name, nf.original_path):
             continue
-        seen.add(key)
+        norm = recovery_quality.normalize_recovery_path(nf.original_path)
+        if norm in seen:
+            continue
+        seen.add(norm)
+
+        mft = nf.inode or ""
+        prior = by_norm_path.get(norm) or by_inode.get(mft)
+
+        if prior:
+            if nf.recovered_path and not prior.recovered:
+                recovery_quality.apply_recovery_result(
+                    prior, nf.recovered_path, nf.source_tool, expected_size=nf.size
+                )
+                _apply_risk(prior)
+                db.add(prior)
+            continue
+
+        if not nf.recovered_path:
+            continue
+
         finding = Finding(
             scan_id=job.id,
             finding_type=FindingType.DELETED_FILE,
@@ -379,7 +406,7 @@ def _run_named_recovery(db, job: ScanJob, source_path: str, fs_type: str) -> int
             original_path=nf.original_path,
             inode=nf.inode,
             size_bytes=nf.size,
-            recovered=bool(nf.recovered_path and os.path.exists(nf.recovered_path)),
+            recovered=True,
             recovered_path=nf.recovered_path,
             source_tool=nf.source_tool,
             meta={
@@ -388,15 +415,19 @@ def _run_named_recovery(db, job: ScanJob, source_path: str, fs_type: str) -> int
                 "recycle_bypass": True,
             },
         )
-        if finding.recovered and finding.recovered_path:
-            try:
-                h = hash_file(finding.recovered_path)
-                finding.md5, finding.sha256 = h.md5, h.sha256
-            except OSError:
-                pass
-            finding.mime_type = metadata.guess_mime(finding.recovered_path, finding.file_name)
-        else:
-            finding.mime_type = metadata.guess_mime("", finding.file_name)
+        ok, reason = recovery_quality.validate_recovered_file(
+            nf.recovered_path, nf.file_name, expected_size=nf.size
+        )
+        if not ok:
+            continue
+        finding.meta = {**finding.meta, "recovery_valid": True, "recovery_note": reason}
+        try:
+            h = hash_file(finding.recovered_path)
+            finding.md5, finding.sha256 = h.md5, h.sha256
+        except OSError:
+            pass
+        finding.mime_type = metadata.guess_mime(finding.recovered_path, finding.file_name)
+        finding.size_bytes = os.path.getsize(finding.recovered_path)
         _apply_risk(finding)
         db.add(finding)
         count += 1

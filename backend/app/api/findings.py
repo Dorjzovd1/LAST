@@ -11,6 +11,7 @@ from app.core import audit
 from app.database import get_db
 from app.models import Finding, FindingType, Severity
 from app.schemas import FindingOut
+from app.services import recovery_quality
 
 router = APIRouter(prefix="/api/findings", tags=["findings"])
 
@@ -54,6 +55,16 @@ def download_finding(finding_id: int, db: Session = Depends(get_db)) -> FileResp
         raise HTTPException(404, "Finding олдсонгүй")
     if not finding.recovered or not finding.recovered_path or not os.path.exists(finding.recovered_path):
         raise HTTPException(404, "Сэргээсэн файл байхгүй")
+    ok, reason = recovery_quality.validate_recovered_file(
+        finding.recovered_path,
+        finding.file_name,
+        expected_size=finding.size_bytes,
+    )
+    if not ok:
+        raise HTTPException(
+            422,
+            f"Сэргээсэн агуулга бүрэн биш — нээж болохгүй ({reason}). Шинэ scan эхлүүлнэ үү.",
+        )
     audit.record(db, action="finding_downloaded", target=finding.file_name, detail={"finding_id": finding.id})
     return FileResponse(
         finding.recovered_path,

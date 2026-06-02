@@ -84,3 +84,28 @@ def test_tsk_fls_pretty_parse():
 
     assert _parse_pretty_line("d/d * 18-144-3:    Documents") is None  # directory
     assert _parse_pretty_line("r/r  16-128-1:    active.txt") is None  # not deleted
+
+
+def test_recovery_junk_names():
+    from app.services.recovery_quality import is_junk_recovery_name, normalize_recovery_path
+
+    assert is_junk_recovery_name("doc.docx ($FILE_NAME)", "/doc.docx ($FILE_NAME)")
+    assert is_junk_recovery_name("file.png:Zone.Identifier", "/file.png:Zone.Identifier")
+    assert not is_junk_recovery_name("report.docx", "/Documents/report.docx")
+    assert normalize_recovery_path("/a.docx ($FILE_NAME)") == "/a.docx"
+
+
+def test_recovery_validate_docx(tmp_path):
+    from app.services.recovery_quality import validate_recovered_file
+
+    bad = tmp_path / "fake.docx"
+    bad.write_bytes(b"not a zip")
+    ok, reason = validate_recovered_file(str(bad), "fake.docx")
+    assert not ok
+    assert "биш" in reason or "magic" in reason
+
+    good = tmp_path / "good.docx"
+    good.write_bytes(b"PK\x03\x04" + b"x" * 600)
+    ok2, _ = validate_recovered_file(str(good), "good.docx")
+    assert ok2
+

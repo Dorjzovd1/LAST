@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from app.config import get_settings
-from app.services import tools
+from app.services import recovery_quality, tools
 
 logger = logging.getLogger("rea.named_recovery")
 settings = get_settings()
@@ -77,6 +77,11 @@ def scan_ntfs(source_path: str, dest_dir: str) -> list[NamedFile]:
         name = parts[-1] if len(parts) > 6 else parts[5]
         if name in (".", ".."):
             continue
+        orig = name if name.startswith(("/", "C:\\", "c:\\")) else f"/{name}"
+        orig = orig.replace("\\", "/")
+        if recovery_quality.is_junk_recovery_name(name, orig):
+            logger.debug("ntfsundelete junk алгасав: %s", name)
+            continue
         try:
             size = int(size_s)
         except ValueError:
@@ -85,23 +90,35 @@ def scan_ntfs(source_path: str, dest_dir: str) -> list[NamedFile]:
         safe = re.sub(r"[^\w.\-]", "_", _basename(name))[:120]
         out = Path(dest_dir) / f"{inode}_{safe}"
         rec = tools.run(
-            ["ntfsundelete", "-u", "-i", inode, "-o", str(out), source_path],
+            ["ntfsundelete", "-f", "-u", "-i", inode, "-o", str(out), source_path],
             timeout=300,
         )
-        recovered = str(out) if out.exists() and out.stat().st_size > 0 else ""
+        recovered = ""
+        if out.exists():
+            ok, _reason = recovery_quality.validate_recovered_file(str(out), _basename(name), expected_size=size)
+            if ok:
+                recovered = str(out)
+            else:
+                try:
+                    out.unlink(missing_ok=True)
+                except OSError:
+                    pass
         if not rec.ok and not recovered:
             logger.debug("ntfsundelete inode %s алдаа: %s", inode, rec.stderr.strip())
 
-        orig = name if name.startswith(("/", "C:\\", "c:\\")) else f"/{name}"
         results.append(
             NamedFile(
-                original_path=orig.replace("\\", "/"),
+                original_path=orig,
                 file_name=_basename(name),
-                size=size,
+                size=size if recovered else 0,
                 recovered_path=recovered,
                 source_tool="ntfsundelete",
                 inode=inode,
-                meta={"has_original_name": True, "recovery_method": "ntfs_metadata"},
+                meta={
+                    "has_original_name": True,
+                    "recovery_method": "ntfs_metadata",
+                    "recovery_valid": bool(recovered),
+                },
             )
         )
     return results
@@ -166,10 +183,19 @@ def recover_ntfs_inode(source_path: str, inode: str, dest_path: str) -> bool:
         return False
     Path(dest_path).parent.mkdir(parents=True, exist_ok=True)
     result = tools.run(
-        ["ntfsundelete", "-f", "-u", "-i", inode, "-o", dest_path, source_path],
+        ["ntfsundelete", "-f", "-u", "-i", recovery_quality.parse_ntfs_mft_inode(inode), "-o", dest_path, source_path],
         timeout=300,
     )
-    return result.ok and os.path.exists(dest_path) and os.path.getsize(dest_path) > 0
+    if not result.ok or not os.path.exists(dest_path):
+        return False
+    ok, _ = recovery_quality.validate_recovered_file(dest_path, os.path.basename(dest_path))
+    if not ok:
+        try:
+            os.remove(dest_path)
+        except OSError:
+            pass
+        return False
+    return True
 
 
 def scan_by_filesystem(source_path: str, fs_type: str, dest_dir: str) -> list[NamedFile]:

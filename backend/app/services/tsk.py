@@ -327,7 +327,7 @@ def recover_inode(
     if not result.ok:
         logger.warning("icat (inode=%s) алдаа: %s", inode, result.stderr.strip())
         return False
-    return os.path.exists(dest_path) and os.path.getsize(dest_path) >= 0
+    return os.path.exists(dest_path) and os.path.getsize(dest_path) > 0
 
 
 def recover_all(image_path: str, dest_dir: str, byte_offset: int = 0) -> int:
