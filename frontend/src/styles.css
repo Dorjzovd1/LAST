@@ -38,13 +38,6 @@ a:hover { text-decoration: underline; }
   padding: 20px 16px;
   flex-shrink: 0;
 }
-.logo {
-  font-size: 20px; font-weight: 800; margin-bottom: 4px; letter-spacing: -.5px;
-  background: linear-gradient(90deg, #6cb0ff, #2f81f7);
-  -webkit-background-clip: text; background-clip: text; color: transparent;
-}
-.logo span { color: var(--accent); }
-.tagline { color: var(--text-dim); font-size: 11px; margin-bottom: 24px; }
 .nav a {
   display: block;
   padding: 9px 12px;
@@ -54,10 +47,6 @@ a:hover { text-decoration: underline; }
 }
 .nav a.active, .nav a:hover { background: var(--bg-panel-2); text-decoration: none; }
 
-.status-pill {
-  margin-top: 24px; padding: 10px 12px; border-radius: 8px;
-  background: var(--bg-panel-2); font-size: 12px;
-}
 .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
 .dot.on { background: var(--green); }
 .dot.off { background: var(--red); }

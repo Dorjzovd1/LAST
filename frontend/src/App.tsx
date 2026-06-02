@@ -14,7 +14,7 @@ interface Toast {
 
 export default function App() {
   const [health, setHealth] = useState<HealthInfo | null>(null);
-  const { connected, subscribe } = useEvents();
+  const { subscribe } = useEvents();
   const [toasts, setToasts] = useState<Toast[]>([]);
 
   useEffect(() => {
@@ -39,34 +39,11 @@ export default function App() {
   return (
     <div className="app">
       <aside className="sidebar">
-        <div className="logo">
-          REA<span>.</span>
-        </div>
-        <div className="tagline">Removable Evidence Analyzer</div>
         <nav className="nav">
           <NavLink to="/" end>
             Хяналтын самбар
           </NavLink>
-          <NavLink to="/cases">Хэргүүд</NavLink>
         </nav>
-
-        <div className="status-pill">
-          <div>
-            <span className={`dot ${connected ? "on" : "off"}`} />
-            Real-time {connected ? "холбогдсон" : "тасарсан"}
-          </div>
-          {health && (
-            <div style={{ marginTop: 8 }}>
-              <span className={`dot ${health.tools_ready ? "on" : "warn"}`} />
-              {health.tools_ready ? "Forensic хэрэгсэл бэлэн" : health.mock_mode ? "Mock горим" : "Хэрэгсэл дутуу"}
-            </div>
-          )}
-          {health && (
-            <div style={{ marginTop: 8, color: "var(--text-dim)" }}>
-              v{health.version} · {health.platform}
-            </div>
-          )}
-        </div>
       </aside>
 
       <main className="main">
