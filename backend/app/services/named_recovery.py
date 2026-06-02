@@ -95,7 +95,7 @@ def scan_ntfs(source_path: str, dest_dir: str) -> list[NamedFile]:
         )
         recovered = ""
         if out.exists():
-            ok, _reason = recovery_quality.validate_recovered_file(str(out), _basename(name), expected_size=size)
+            ok, _reason = recovery_quality.validate_recovered_file(str(out), _basename(name), expected_size=size, strict=True)
             if ok:
                 recovered = str(out)
             else:
@@ -174,7 +174,7 @@ def scan_ext(source_path: str, dest_dir: str) -> list[NamedFile]:
     return results
 
 
-def recover_ntfs_inode(source_path: str, inode: str, dest_path: str) -> bool:
+def recover_ntfs_inode(source_path: str, inode: str, dest_path: str, *, file_name: str = "") -> bool:
     """NTFS inode-ийг ntfsundelete-ээр сэргээнэ (Shift+Delete / permanent delete).
 
     icat амжилтгүй үед fallback болгон ашиглана.
@@ -188,7 +188,8 @@ def recover_ntfs_inode(source_path: str, inode: str, dest_path: str) -> bool:
     )
     if not result.ok or not os.path.exists(dest_path):
         return False
-    ok, _ = recovery_quality.validate_recovered_file(dest_path, os.path.basename(dest_path))
+    check_name = file_name or os.path.basename(dest_path)
+    ok, _ = recovery_quality.validate_recovered_file(dest_path, check_name, strict=False)
     if not ok:
         try:
             os.remove(dest_path)

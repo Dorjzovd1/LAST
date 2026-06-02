@@ -13,7 +13,6 @@ _JUNK_PATTERNS = (
     re.compile(r"^\$Recycle", re.I),
 )
 
-# Файлын төрлийн magic bytes (эхний байтууд).
 _MAGIC: dict[str, bytes] = {
     "docx": b"PK\x03\x04",
     "xlsx": b"PK\x03\x04",
@@ -26,7 +25,6 @@ _MAGIC: dict[str, bytes] = {
     "pdf": b"%PDF",
 }
 
-# Хамгийн бага хэмжээ (bytes) — үүнээс бага бол ихэнх програм нээнэ гэж найдахгүй.
 _MIN_BYTES: dict[str, int] = {
     "docx": 512,
     "xlsx": 512,
@@ -65,8 +63,13 @@ def validate_recovered_file(
     file_name: str,
     *,
     expected_size: int = 0,
+    strict: bool = True,
 ) -> tuple[bool, str]:
-    """Сэргээсэн файл бодит, нээж болох эсэх."""
+    """Сэргээсэн файл татах/нээхэд тохиромжтой эсэх.
+
+    strict=False: зөвхөн junk + 0 byte шалгана (icat/ntfsundelete fallback).
+    strict=True: magic + хэмжээний нарийвчилсан шалгалт (download).
+    """
     if not path or not os.path.isfile(path):
         return False, "файл олдсонгүй"
 
@@ -77,8 +80,11 @@ def validate_recovered_file(
     if is_junk_recovery_name(file_name, path):
         return False, "MFT metadata — бодит файл биш"
 
+    if not strict:
+        return True, "ok"
+
     ext = os.path.splitext(file_name)[1].lstrip(".").lower()
-    min_sz = _MIN_BYTES.get(ext, 1)
+    min_sz = _MIN_BYTES.get(ext, 32)
     if actual < min_sz:
         return False, f"хэт жижиг ({actual} B) — {ext or 'файл'} бүрэн биш"
 
@@ -105,24 +111,33 @@ def apply_recovery_result(
     *,
     expected_size: int = 0,
 ) -> bool:
-    """Finding-д сэргээлт хадгалах эсвэл амжилтгүй гэж тэмдэглэх."""
-    ok, reason = validate_recovered_file(path, finding.file_name, expected_size=expected_size or finding.size_bytes)
+    """Finding-д сэргээлт хадгалах — эхлээд soft, дараа нь strict шалгалт."""
+    soft_ok, soft_reason = validate_recovered_file(
+        path, finding.file_name, expected_size=expected_size or finding.size_bytes, strict=False
+    )
+    strict_ok, strict_reason = validate_recovered_file(
+        path, finding.file_name, expected_size=expected_size or finding.size_bytes, strict=True
+    )
     meta = {**(finding.meta or {}), "recovery_tool": tool}
-    if ok:
-        finding.recovered = True
-        finding.recovered_path = path
-        finding.size_bytes = os.path.getsize(path)
-        meta["recovery_valid"] = True
-        meta["recovery_note"] = reason
-    else:
+
+    if not soft_ok:
         finding.recovered = False
         finding.recovered_path = ""
         meta["recovery_valid"] = False
-        meta["recovery_note"] = reason
+        meta["recovery_note"] = soft_reason
         if os.path.exists(path):
             try:
                 os.remove(path)
             except OSError:
                 pass
+        finding.meta = meta
+        return False
+
+    finding.recovered = True
+    finding.recovered_path = path
+    finding.size_bytes = os.path.getsize(path)
+    meta["recovery_valid"] = strict_ok
+    meta["recovery_note"] = strict_reason if strict_ok else f"partial: {strict_reason}"
+    meta["recovery_partial"] = not strict_ok
     finding.meta = meta
-    return ok
+    return True

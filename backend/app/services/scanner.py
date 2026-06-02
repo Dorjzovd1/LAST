@@ -264,7 +264,7 @@ def _maybe_recover(
             part = named_recovery.resolve_partition_path(
                 device.dev_path, fs, device.details or {}
             )
-        if named_recovery.recover_ntfs_inode(part, entry.inode, str(dest)):
+        if named_recovery.recover_ntfs_inode(part, entry.inode, str(dest), file_name=finding.file_name):
             recovery_quality.apply_recovery_result(
                 finding, str(dest), "ntfsundelete", expected_size=entry.size or finding.size_bytes
             )

@@ -59,6 +59,7 @@ def download_finding(finding_id: int, db: Session = Depends(get_db)) -> FileResp
         finding.recovered_path,
         finding.file_name,
         expected_size=finding.size_bytes,
+        strict=not (finding.meta or {}).get("recovery_partial"),
     )
     if not ok:
         raise HTTPException(
