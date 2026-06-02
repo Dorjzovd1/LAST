@@ -63,7 +63,7 @@ export function findingIsActive(findingType: string): boolean {
 }
 
 export function findingFileStatusLabel(findingType: string): string {
-  if findingIsActive(findingType)) return "Идэвхтэй";
+  if (findingIsActive(findingType)) return "Идэвхтэй";
   if (findingType === "recycle_artifact") return "Recycle Bin";
   if (findingType === "carved_file") return "Carved";
   return "Устгагдсан";
