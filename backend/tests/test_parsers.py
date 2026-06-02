@@ -95,6 +95,18 @@ def test_recovery_junk_names():
     assert normalize_recovery_path("/a.docx ($FILE_NAME)") == "/a.docx"
 
 
+def test_ensure_utc_naive():
+    from datetime import datetime, timezone
+
+    from app.utils.time_utils import ensure_utc
+
+    naive = datetime(2026, 6, 2, 8, 38, 15)
+    aware = ensure_utc(naive)
+    assert aware is not None
+    assert aware.tzinfo == timezone.utc
+    assert aware.hour == 8
+
+
 def test_recovery_validate_docx(tmp_path):
     from app.services.recovery_quality import validate_recovered_file
 

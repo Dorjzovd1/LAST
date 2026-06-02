@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
 from app.models import (
     DeviceState,
@@ -11,6 +11,12 @@ from app.models import (
     ScanStatus,
     Severity,
 )
+from app.utils.time_utils import ensure_utc
+
+
+def _serialize_utc_datetime(dt: datetime | None) -> datetime | None:
+    """JSON-д timezone (+00:00) бүхий ISO гаргах — frontend зөв хөрвүүлнэ."""
+    return ensure_utc(dt)
 
 
 class ORMModel(BaseModel):
@@ -33,6 +39,10 @@ class CaseOut(ORMModel):
     description: str
     created_at: datetime
 
+    @field_serializer("created_at")
+    def _ser_created(self, dt: datetime) -> datetime:
+        return ensure_utc(dt)  # type: ignore[return-value]
+
 
 # ----------------------------- Device -------------------------------------- #
 class DeviceOut(ORMModel):
@@ -49,6 +59,10 @@ class DeviceOut(ORMModel):
     state: DeviceState
     details: dict
     created_at: datetime
+
+    @field_serializer("created_at")
+    def _ser_created_at(self, dt: datetime) -> datetime:
+        return ensure_utc(dt)  # type: ignore[return-value]
 
 
 class DeviceRegister(BaseModel):
@@ -84,6 +98,10 @@ class ScanOut(ORMModel):
     finished_at: datetime | None
     created_at: datetime
 
+    @field_serializer("started_at", "finished_at", "created_at")
+    def _ser_scan_times(self, dt: datetime | None) -> datetime | None:
+        return _serialize_utc_datetime(dt)
+
 
 # ----------------------------- Finding ------------------------------------- #
 class FindingOut(ORMModel):
@@ -108,6 +126,10 @@ class FindingOut(ORMModel):
     meta: dict
     created_at: datetime
 
+    @field_serializer("mtime", "atime", "ctime", "crtime", "created_at")
+    def _ser_finding_times(self, dt: datetime | None) -> datetime | None:
+        return _serialize_utc_datetime(dt)
+
 
 class TimelineEventOut(ORMModel):
     id: int
@@ -116,6 +138,10 @@ class TimelineEventOut(ORMModel):
     timestamp: datetime
     event_type: str
     description: str
+
+    @field_serializer("timestamp")
+    def _ser_timestamp(self, dt: datetime) -> datetime:
+        return ensure_utc(dt)  # type: ignore[return-value]
 
 
 class ScanSummaryOut(BaseModel):
@@ -142,3 +168,7 @@ class AuditLogOut(ORMModel):
     target: str
     detail: dict
     timestamp: datetime
+
+    @field_serializer("timestamp")
+    def _ser_audit_ts(self, dt: datetime) -> datetime:
+        return ensure_utc(dt)  # type: ignore[return-value]

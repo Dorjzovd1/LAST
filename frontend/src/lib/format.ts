@@ -5,11 +5,30 @@ export function formatBytes(bytes: number): string {
   return `${(bytes / Math.pow(1024, i)).toFixed(i ? 1 : 0)} ${units[i]}`;
 }
 
+/** API-аас ирсэн цаг — timezone байхгүй бол UTC гэж үзнэ. */
+export const DISPLAY_TZ = "Asia/Ulaanbaatar";
+
+export function parseApiDate(iso: string): Date {
+  if (iso.endsWith("Z") || /[+-]\d{2}:\d{2}$/.test(iso)) {
+    return new Date(iso);
+  }
+  return new Date(`${iso}Z`);
+}
+
 export function formatDate(iso: string | null): string {
   if (!iso) return "—";
-  const d = new Date(iso);
+  const d = parseApiDate(iso);
   if (isNaN(d.getTime())) return iso;
-  return d.toLocaleString();
+  return d.toLocaleString("mn-MN", {
+    timeZone: DISPLAY_TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
 }
 
 export function shortHash(hash: string, n = 12): string {
