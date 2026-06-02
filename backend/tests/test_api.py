@@ -81,13 +81,21 @@ def test_full_pipeline(client):
     html = client.get(f"/api/reports/scan/{scan['id']}/html")
     assert html.status_code == 200
     assert "Forensic" in html.text
+    assert "Хэргийн мэдээлэл" not in html.text
     rep = client.get(f"/api/reports/scan/{scan['id']}/json").json()
     assert rep["summary"]["total_findings"] == len(findings)
+    assert "case" not in rep
     pdf = client.get(f"/api/reports/scan/{scan['id']}/pdf")
     assert pdf.status_code == 200
     assert pdf.headers["content-type"] == "application/pdf"
     assert pdf.content[:5] == b"%PDF-"
     assert len(pdf.content) > 1000
+
+    # 8b. Файлын албан ёсны эрсдэлийн тайлан (narrative)
+    risk = client.get(f"/api/findings/{findings[0]['id']}/risk-report").json()
+    assert risk["executive_summary"]
+    assert risk.get("examiner_opinion")
+    assert risk.get("recommendations_narrative")
 
     # 9. Audit (chain of custody)
     audit = client.get(f"/api/cases/{case['id']}/audit").json()

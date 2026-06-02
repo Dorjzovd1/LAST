@@ -397,11 +397,12 @@ tr:hover td { background: var(--bg-panel-2); }
   color: var(--accent-2); text-transform: uppercase; letter-spacing: 0.04em;
 }
 .risk-doc-framework { margin: 0 0 10px; }
-.risk-doc-summary, .risk-doc-conclusion {
+.risk-doc-summary, .risk-doc-conclusion, .risk-doc-narrative {
   margin: 0; padding: 12px 14px; background: var(--bg-panel-2);
   border-left: 4px solid var(--accent); border-radius: 0 8px 8px 0;
   line-height: 1.6; font-size: 13px;
 }
+.risk-doc-narrative { white-space: pre-line; margin-bottom: 12px; }
 .risk-ref-table, .risk-kv-table, .risk-cia-table {
   width: 100%; font-size: 12px; margin-top: 8px;
 }

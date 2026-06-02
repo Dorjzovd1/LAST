@@ -19,6 +19,12 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 from app.models import FindingType, Severity
+from app.services.report_narrative import (
+    narrate_file_conclusion,
+    narrate_file_examiner_opinion,
+    narrate_file_executive,
+    narrate_file_recommendations,
+)
 
 ImpactLevel = Literal["low", "moderate", "high"]
 
@@ -325,20 +331,41 @@ def build_official_risk_report(
     c, i, a = assessment.confidentiality, assessment.integrity, assessment.availability
     overall = assessment.overall_impact
 
-    executive = (
-        f"Шинжилгээний объект болох «{file_name}» ({original_path or '—'}) файлын metadata, "
-        f"мэдээллийн төрөл, forensic контекст ({type_label}) дээр суурилан "
-        f"{RISK_STANDARD} стандартын дагуу автomat эрсдэлийн үнэлгээ хийсэн. "
-        f"FIPS 199 high-water mark аргаар нийт нөлөөллийн түвшин: {_IMPACT_MN[overall]} "
-        f"({sev_label}). FIPS composite оноо: {assessment.score}."
+    rec_pack = narrate_file_recommendations(
+        severity=assessment.severity,
+        finding_type=finding_type,
+        file_name=file_name,
+        original_path=original_path,
+        recovered=recovered,
+        sev_label=sev_label,
     )
 
-    conclusion = (
-        f"Дүгнэлт: Файлын эрсдэлийн түвшин — {sev_label}. "
-        f"Нууцлал (C): {_IMPACT_MN[c]}; Бүрэн бүтэн байдал (I): {_IMPACT_MN[i]}; "
-        f"Байдал (A): {_IMPACT_MN[a]}. "
-        f"Энэ үнэлгээ нь файлын нэр, зам, өргөтгөл, илрүүлэлтийн төрөлд суурилсан "
-        f"стандартчилсан triage бөгөөд агуулгын гүн шинжилгээний орлон биш."
+    executive = narrate_file_executive(
+        file_name=file_name,
+        original_path=original_path,
+        type_label=type_label,
+        sev_label=sev_label,
+        overall=overall,
+        score=assessment.score,
+        information_types=assessment.information_types,
+        recovered=recovered,
+    )
+
+    conclusion = narrate_file_conclusion(
+        file_name=file_name,
+        sev_label=sev_label,
+        c=c,
+        i=i,
+        a=a,
+        type_label=type_label,
+    )
+
+    examiner_opinion = narrate_file_examiner_opinion(
+        file_name=file_name,
+        sev_label=sev_label,
+        type_label=type_label,
+        information_types=assessment.information_types,
+        overall=overall,
     )
 
     analysis_steps = [
@@ -357,7 +384,7 @@ def build_official_risk_report(
             "standard": "FIPS 199",
             "detail": (
                 "Нууцлал, бүрэн бүтэн байдал, байдал гэсэн гурван зорилгоор "
-                "LOW / MODERATE / HIGH түвшин тус бүрд оноож, нийт түvшинг "
+                "LOW / MODERATE / HIGH түвшин тус бүрд оноож, нийт түвшинг "
                 "max(C, I, A) — high-water mark аргаар тогтоосон."
             ),
         },
@@ -437,7 +464,9 @@ def build_official_risk_report(
         "detailed_findings": reasons,
         "executive_summary": executive,
         "conclusion": conclusion,
-        "recommendations": _recommendations(assessment.severity, finding_type, recovered),
+        "recommendations": rec_pack["bullets"],
+        "recommendations_narrative": rec_pack["narrative"],
+        "examiner_opinion": examiner_opinion,
         "disclaimer": (
             "Анхааруулга: Энэ баримт нь автomat metadata-based triage үр дүн болно. "
             "Агуулгын дүн шинжилгээ, хууль зүйн дүгнэлт, шинжээчийн эцсийн санал "

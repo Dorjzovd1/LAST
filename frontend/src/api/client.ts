@@ -11,6 +11,7 @@ import type {
   ScanSummary,
   TimelineEvent,
 } from "./types";
+import type { RiskOfficialReport } from "../lib/riskReport";
 
 const BASE = "/api";
 
@@ -71,6 +72,7 @@ export const api = {
   },
   previewFinding: (id: number) =>
     http<{ preview: string; available: boolean; truncated?: boolean }>(`/findings/${id}/preview`),
+  findingRiskReport: (id: number) => http<RiskOfficialReport>(`/findings/${id}/risk-report`),
   downloadUrl: (id: number) => `${BASE}/findings/${id}/download`,
 
   // Reports

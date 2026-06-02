@@ -119,127 +119,150 @@ def _table(pdf: _PDF, headers: list[str], rows: list[list[str]], widths: list[fl
     pdf.ln(2)
 
 
+def _subheading(pdf: _PDF, text: str) -> None:
+    pdf.ln(1)
+    pdf._font("B", 10)
+    pdf.set_text_color(15, 52, 96)
+    pdf.cell(0, 6, pdf._t(text), new_x="LMARGIN", new_y="NEXT")
+    pdf.set_text_color(30, 30, 30)
+
+
+def _narrative(pdf: _PDF, text: str) -> None:
+    if not text:
+        return
+    pdf._font("", 9)
+    for block in text.split("\n\n"):
+        block = block.strip()
+        if block:
+            pdf.multi_cell(0, 5.5, pdf._t(block), new_x="LMARGIN", new_y="NEXT")
+            pdf.ln(1)
+
+
 def generate_pdf(data: dict) -> bytes:
     case = data["case"]
     device = data["device"]
     scan = data["scan"]
     summary = data["summary"]
+    forensic = data.get("forensic") or {}
+    risk = forensic.get("risk_assessment") or {}
+    correlated = forensic.get("correlated_timeline") or []
+    clusters = (forensic.get("correlations") or {}).get("time_clusters") or []
 
     pdf = _PDF()
     pdf.alias_nb_pages()
     pdf.add_page()
 
-    # Гарчиг
-    pdf._font("B", 17)
+    title = forensic.get("report_title", "Forensic тайлан")
+    pdf._font("B", 15)
     pdf.set_text_color(15, 52, 96)
-    pdf.cell(0, 10, pdf._t("Forensic тайлан"), new_x="LMARGIN", new_y="NEXT")
+    pdf.multi_cell(0, 8, pdf._t(title), new_x="LMARGIN", new_y="NEXT")
     pdf._font("", 9)
     pdf.set_text_color(120, 120, 120)
-    pdf.cell(0, 6, pdf._t(f"Removable Evidence Analyzer · Scan #{scan.id} · {datetime.now().strftime('%Y-%m-%d %H:%M')}"), new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 6, pdf._t(f"Scan #{scan.id} · {datetime.now().strftime('%Y-%m-%d %H:%M')}"), new_x="LMARGIN", new_y="NEXT")
 
-    # 1. Хэрэг
-    _heading(pdf, "1. Хэргийн мэдээлэл")
-    _kv(pdf, [
-        ("Хэргийн дугаар", case.case_number if case else "—"),
-        ("Гарчиг", case.title if case else "—"),
-        ("Шинжээч", case.investigator if case else "—"),
-        ("Тайлбар", case.description if case else "—"),
-    ])
-
-    # 2. Төхөөрөмж
-    _heading(pdf, "2. Төхөөрөмжийн мэдээлэл")
+    _heading(pdf, "1. Төхөөрөмж")
     _kv(pdf, [
         ("Зам (dev)", device.dev_path if device else "—"),
-        ("Нэр / Модель", device.name if device else "—"),
-        ("Сериал", device.serial if device else "—"),
-        ("Холболт", device.bus if device else "—"),
-        ("Хэмжээ (bytes)", str(device.size_bytes) if device else "—"),
-        ("Файлын систем", device.fs_type if device else "—"),
+        ("Нэр", device.name if device else "—"),
+        ("Хэмжээ", str(device.size_bytes) if device else "—"),
+        ("FS", device.fs_type if device else "—"),
         ("Read-only", "Тийм" if device and device.read_only else "Үгүй"),
     ])
 
-    # 3. Дүгнэлт
-    _heading(pdf, "3. Дүгнэлт")
-    pdf._font("", 10)
+    _heading(pdf, "2. Сэжигтэй байдлын үнэлгээ")
+    pdf._font("", 9)
+    pdf.multi_cell(0, 5.5, pdf._t(risk.get("executive_narrative", "")), new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(2)
     sev = summary["by_severity"]
     high = sev.get("high", 0)
     medium = sev.get("medium", 0)
     normal = sev.get("normal", 0)
-    total = high + medium + normal
-    sus_pct = round((high + medium) / total * 100, 1) if total else 0.0
+    sus = summary.get("suspicious_count", high + medium)
+    sus_pct = summary.get("suspicious_percent", 0)
     pdf.multi_cell(
-        0, 6,
+        0, 5.5,
         pdf._t(
-            f"Нийт файл: {summary['total_findings']} "
-            f"(устгагдсан: {summary.get('deleted', 0)}, сэргээсэн: {summary['recovered']}).\n"
-            f"Эрсдэлийн түвшин — Өндөр: {high}, Дунд: {medium}, Хэвийн: {normal}.\n"
-            f"Сэжигтэй (Өндөр+Дунд): {high + medium} буюу нийт файлын {sus_pct}%."
+            f"Нийт: {summary['total_findings']} · Сэжигтэй: {sus} ({sus_pct}%) · "
+            f"Өндөр: {high}, Дунд: {medium}, Хэвийн: {normal}."
         ),
         new_x="LMARGIN", new_y="NEXT",
     )
 
-    # NIST SP 800-60 + FIPS 199 стандартын тайлбар.
-    pdf.ln(2)
-    pdf._font("B", 9)
-    pdf.cell(0, 6, pdf._t("Эрсдэлийн үнэлгээний стандарт:"), new_x="LMARGIN", new_y="NEXT")
-    pdf._font("", 9)
-    from app.services.risk_assessment import RISK_FRAMEWORK
+    _heading(pdf, "3. Шинжээчийн тайлан")
+    _subheading(pdf, "Timeline")
+    _narrative(pdf, forensic.get("timeline_narrative", ""))
+    _subheading(pdf, "Correlation шинжилгээ")
+    _narrative(pdf, forensic.get("correlation_narrative", ""))
+    _subheading(pdf, "Зөвлөмж")
+    _narrative(pdf, forensic.get("recommendations_narrative", ""))
+    _subheading(pdf, "Нэгдсэн дүгнэлт")
+    _narrative(pdf, forensic.get("examiner_report", ""))
 
-    pdf.multi_cell(
-        0,
-        5.5,
-        pdf._t(RISK_FRAMEWORK["standard"]),
-        new_x="LMARGIN",
-        new_y="NEXT",
-    )
-    for ref in RISK_FRAMEWORK["references"]:
-        pdf.cell(0, 5.5, pdf._t(f"  • {ref}"), new_x="LMARGIN", new_y="NEXT")
-    pdf.set_text_color(100, 100, 100)
-    pdf.multi_cell(
-        0,
-        5.5,
-        pdf._t(
-            "FIPS 199: Нийт түвшин = max(Нууцлал C, Бүрэн бүтэн байдал I, Байдал A). "
-            "HIGH → Өндөр, MODERATE → Дунд, LOW → Хэвийн."
-        ),
-        new_x="LMARGIN",
-        new_y="NEXT",
-    )
-    pdf.set_text_color(30, 30, 30)
-
-    # 4. Файлын жагсаалт (MACB цаг)
-    _heading(pdf, "4. Файлын жагсаалт (хэзээ ямар үйлдэл — MACB)")
-    frows = [
+    _heading(pdf, "4. Өндөр эрсдэлтэй файлууд")
+    hrows = [
         [
-            f.severity.value,
-            "устгасан" if (f.meta or {}).get("deleted") else "идэвхтэй",
-            (f.file_name or "—")[:34],
-            str(f.size_bytes),
-            str(f.mtime)[:16] if f.mtime else "—",
-            str(f.crtime)[:16] if f.crtime else "—",
+            (f.get("file_name") or "—")[:28],
+            (f.get("original_path") or "—")[:36],
+            str(f.get("risk_score", 0)),
         ]
-        for f in data["findings"]
+        for f in risk.get("high_risk_findings", [])[:20]
     ]
-    if frows:
-        _table(pdf, ["Зэрэг", "Төлөв", "Файл", "Хэмжээ", "Modified", "Born"], frows, [18, 20, 50, 22, 40, 40])
+    if hrows:
+        _table(pdf, ["Файл", "Зам", "FIPS"], hrows, [45, 95, 20])
     else:
         pdf._font("", 9)
-        pdf.cell(0, 6, pdf._t("Файл олдсонгүй."), new_x="LMARGIN", new_y="NEXT")
+        pdf.cell(0, 6, pdf._t("Өндөр эрсдэл олдсонгүй."), new_x="LMARGIN", new_y="NEXT")
 
-    # 5. Timeline (хамгийн ихдээ 120 мөр)
-    _heading(pdf, "5. Timeline")
-    trows = [[str(e.timestamp)[:19], e.event_type, e.description[:70]] for e in data["timeline"][:120]]
+    _heading(pdf, "5. Уялдуулсан timeline (timestamp + metadata + эрсдэл)")
+    trows = [
+        [
+            str(e.get("timestamp", ""))[:16],
+            str(e.get("event_type", "")),
+            str(e.get("severity", ""))[:6],
+            (e.get("file_name") or "—")[:22],
+            str(e.get("risk_score", 0)),
+        ]
+        for e in correlated[:100]
+    ]
     if trows:
-        _table(pdf, ["Цаг", "MACB", "Тайлбар"], trows, [42, 16, 124])
+        _table(pdf, ["Цаг", "MACB", "Эрсдэл", "Файл", "FIPS"], trows, [38, 14, 18, 50, 16])
     else:
         pdf._font("", 9)
         pdf.cell(0, 6, pdf._t("Timeline хоосон."), new_x="LMARGIN", new_y="NEXT")
 
-    # 6. Audit
-    _heading(pdf, "6. Chain-of-custody (audit)")
-    arows = [[str(a.timestamp)[:19], a.action, a.actor, (a.target or "")[:40]] for a in data["audit"]]
+    _heading(pdf, "6. Цаг хугацааны cluster")
+    crows = [
+        [
+            str(c.get("window", ""))[:16],
+            str(c.get("event_count", 0)),
+            str(c.get("high_risk_events", 0)),
+            (c.get("note") or "")[:55],
+        ]
+        for c in clusters[:15]
+    ]
+    if crows:
+        _table(pdf, ["Цонх", "Үйлдэл", "Өндөр", "Тайлбар"], crows, [36, 18, 18, 110])
+    else:
+        pdf._font("", 9)
+        pdf.cell(0, 6, pdf._t("Cluster олдсонгүй."), new_x="LMARGIN", new_y="NEXT")
+
+    _heading(pdf, "7. Файлын metadata (MACB)")
+    frows = [
+        [
+            f.severity.value,
+            (f.file_name or "—")[:30],
+            str(f.size_bytes),
+            str(f.mtime)[:16] if f.mtime else "—",
+        ]
+        for f in data["findings"][:40]
+    ]
+    if frows:
+        _table(pdf, ["Зэрэг", "Файл", "Хэмжээ", "Modified"], frows, [18, 70, 24, 40])
+
+    _heading(pdf, "8. Chain-of-custody")
+    arows = [[str(a.timestamp)[:19], a.action, (a.target or "")[:40]] for a in data["audit"]]
     if arows:
-        _table(pdf, ["Цаг", "Үйлдэл", "Хэрэглэгч", "Объект"], arows, [42, 50, 30, 60])
+        _table(pdf, ["Цаг", "Үйлдэл", "Объект"], arows, [42, 50, 90])
     else:
         pdf._font("", 9)
         pdf.cell(0, 6, pdf._t("Бүртгэл алга."), new_x="LMARGIN", new_y="NEXT")

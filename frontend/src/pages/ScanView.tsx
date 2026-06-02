@@ -115,8 +115,9 @@ export default function ScanView() {
   return (
     <div>
       <h1 className="page-title">Шинжилгээ #{scan.id}</h1>
-      <p className="page-sub">
-        Нийт файлын metadata — идэвхтэй + устгагдсан, MAC activity timeline, эрсдэлийн үнэлгээ.
+        <p className="page-sub">
+        Нийт файлын metadata — timestamp (MACB) уялдуулал, эрсдэлийн үнэлгээ. PDF/HTML тайланд
+        бүх ул мөр цагийн дарааллаар нэгтгэгдэнэ.
       </p>
 
       <div className="panel">

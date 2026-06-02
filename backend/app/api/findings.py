@@ -12,6 +12,7 @@ from app.database import get_db
 from app.models import Finding, FindingType, Severity
 from app.schemas import FindingOut
 from app.services import recovery_quality
+from app.services.risk_assessment import assess_risk
 
 router = APIRouter(prefix="/api/findings", tags=["findings"])
 
@@ -72,6 +73,20 @@ def download_finding(finding_id: int, db: Session = Depends(get_db)) -> FileResp
         filename=finding.file_name or f"finding_{finding.id}",
         media_type=finding.mime_type or "application/octet-stream",
     )
+
+
+@router.get("/{finding_id}/risk-report", summary="Эрсдэлийн албан ёсны тайлан (NIST/FIPS narrative)")
+def finding_risk_report(finding_id: int, db: Session = Depends(get_db)) -> dict:
+    finding = db.get(Finding, finding_id)
+    if finding is None:
+        raise HTTPException(404, "Finding олдсонгүй")
+    assessment = assess_risk(
+        finding_type=finding.finding_type,
+        file_name=finding.file_name or "",
+        original_path=finding.original_path or "",
+        recovered=finding.recovered,
+    )
+    return assessment.report
 
 
 @router.get("/{finding_id}/preview", summary="Текст урьдчилан харах (эхний 4KB)")

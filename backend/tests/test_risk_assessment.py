@@ -29,6 +29,9 @@ def test_official_report_generated():
     assert r.report
     assert r.report["title"] == "Эрсдэлийн үнэлгээний албан ёсны тайлбар"
     assert r.report["executive_summary"]
+    assert "leak.zip" in r.report["executive_summary"]
+    assert r.report.get("examiner_opinion")
+    assert r.report.get("recommendations_narrative")
     assert len(r.report["analysis_steps"]) >= 4
     assert len(r.report["recommendations"]) >= 1
 

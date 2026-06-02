@@ -43,6 +43,8 @@ export interface RiskOfficialReport {
   executive_summary: string;
   conclusion: string;
   recommendations: string[];
+  recommendations_narrative?: string;
+  examiner_opinion?: string;
   disclaimer: string;
 }
 
