@@ -4,7 +4,7 @@ export const SCAN_TAB_LABELS: Record<ScanTab, string> = {
   inventory: "Нийт файл",
   active: "Идэвхтэй",
   deleted: "Устгагдсан",
-  risk: "Эрсдэлтэй үнэлгээ",
+  risk: "Эрсдэлийн үнэлгээ",
   timeline: "Activity Timeline",
 };
 
