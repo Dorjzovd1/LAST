@@ -40,6 +40,19 @@ export default function App() {
   return (
     <div className="app">
       <aside className="sidebar">
+        <div className="app-brand">
+          <div className="app-brand-mark" aria-hidden="true">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
+              <rect x="7" y="2" width="10" height="14" rx="2" />
+              <path d="M12 16v6M9 22h6" />
+              <path d="M9 7h6M9 11h4" />
+            </svg>
+          </div>
+          <p className="app-brand-title">
+            Зөөврийн мэдээлэл тээгч төхөөрөмжийн{" "}
+            <span>тоон ул мөр илрүүлэх систем</span>
+          </p>
+        </div>
         <SidebarNav />
       </aside>
 
