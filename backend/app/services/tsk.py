@@ -168,56 +168,63 @@ def _list_deleted_body(image_path: str, byte_offset: int) -> list[DeletedEntry]:
 
 
 # --------------------------------------------------------------------------- #
-# Бүх файл (идэвхтэй + устгагдсан) — MAC цаг бүхий бүрэн жагсаалт
+# Идэвхтэй + бүх файл — MAC цаг бүхий бүрэн жагсаалт
 # --------------------------------------------------------------------------- #
-def list_all_files(image_path: str, byte_offset: int = 0) -> list[DeletedEntry]:
-    """Файлын системийн БҮХ файлыг (идэвхтэй болон устгагдсан) жагсаана.
-
-    `fls -r -d -m /` ашиглана — `-d` нь Shift+Delete (Recycle Bin алгассан),
-    Ctrl+Shift+Delete зэрэг **байнгын устгалын** метадата-г илрүүлнэ.
-    """
+def list_active_files(image_path: str, byte_offset: int = 0) -> list[DeletedEntry]:
+    """Идэвхтэй (устгагдаагүй) файлуудыг `fls -r -m` (without -d) ашиглан жагсаана."""
     if not tsk_available():
         if settings.allow_mock:
-            return _mock_all_files(image_path)
+            return [e for e in _mock_all_files(image_path) if not e.deleted]
         return []
 
-    args = ["fls", "-r", "-d", "-m", "/"]
+    args = ["fls", "-r", "-m", "/"]
     if byte_offset:
         args += ["-o", str(byte_offset // 512)]
     args.append(image_path)
 
     result = tools.run(args, timeout=1800)
     if not result.ok:
-        logger.warning("fls (бүх файл) алдаа: %s", result.stderr.strip())
+        logger.warning("fls (идэвхтэй) алдаа: %s", result.stderr.strip())
         return []
 
-    by_inode: dict[str, DeletedEntry] = {}
+    entries: list[DeletedEntry] = []
     for line in result.stdout.splitlines():
         entry = _parse_body_line(line)
-        if not entry or entry.file_type != "r":
+        if not entry or entry.file_type != "r" or entry.deleted:
             continue
-        if entry.deleted:
-            entry.meta = {**entry.meta, "delete_method": "permanent", "recycle_bypass": True}
-        key = f"{entry.inode}:{entry.name}"
-        existing = by_inode.get(key)
-        if existing is None or (existing.deleted and not entry.deleted):
-            by_inode[key] = entry
+        entry.deleted = False
+        entries.append(entry)
 
-    # Pretty формат (* = устгагдсан) — body-д алга болсон entry-г нэмнэ.
-    for entry in _list_deleted_pretty(image_path, byte_offset):
+    logger.info("TSK fls: %d идэвхтэй файл (offset=%d)", len(entries), byte_offset)
+    return entries
+
+
+def list_all_files(image_path: str, byte_offset: int = 0) -> list[DeletedEntry]:
+    """Файлын системийн БҮХ файлыг (идэвхтэй + устгагдсан) жагсаана."""
+    if not tsk_available():
+        if settings.allow_mock:
+            return _mock_all_files(image_path)
+        return []
+
+    active = list_active_files(image_path, byte_offset)
+    deleted = list_deleted(image_path, byte_offset)
+
+    by_key: dict[str, DeletedEntry] = {}
+    for entry in active:
+        by_key[f"{entry.inode}:{entry.name}"] = entry
+    for entry in deleted:
+        key = f"{entry.inode}:{entry.name}"
         entry.deleted = True
         entry.meta = {**entry.meta, "delete_method": "permanent", "recycle_bypass": True}
-        key = f"{entry.inode}:{entry.name}"
-        if key not in by_inode:
-            by_inode[key] = entry
-        elif len(entry.name) > len(by_inode[key].name):
-            by_inode[key] = entry
+        if key not in by_key:
+            by_key[key] = entry
 
-    entries = list(by_inode.values())
+    entries = list(by_key.values())
     deleted_n = sum(1 for e in entries if e.deleted)
+    active_n = len(entries) - deleted_n
     logger.info(
-        "TSK fls: нийт %d файл (%d устгагдсан/shift+delete, offset=%d)",
-        len(entries), deleted_n, byte_offset,
+        "TSK нийт: %d файл (%d идэвхтэй, %d устгагдсан, offset=%d)",
+        len(entries), active_n, deleted_n, byte_offset,
     )
     return entries
 

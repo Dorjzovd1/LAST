@@ -276,3 +276,14 @@ tr:hover td { background: var(--bg-panel-2); }
 .kind-A { background: rgba(63,185,80,.25); }
 .kind-C { background: rgba(219,138,23,.25); }
 .kind-B { background: rgba(248,81,73,.25); }
+
+.module-tabs { display: flex; flex-wrap: wrap; gap: 8px; }
+.tab-count {
+  margin-left: 6px; padding: 1px 6px; border-radius: 10px;
+  background: var(--bg); font-size: 10px; color: var(--text-dim);
+}
+.risk-summary {
+  display: flex; flex-wrap: wrap; gap: 16px; align-items: center;
+  padding: 12px 14px; background: var(--bg); border-radius: 8px; margin-bottom: 14px;
+}
+.risk-summary-item { display: flex; align-items: center; gap: 8px; font-size: 13px; }

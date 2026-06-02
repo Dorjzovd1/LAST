@@ -28,7 +28,7 @@ from app.models import (
     ScanJob,
     ScanStatus,
 )
-from app.services import carving, metadata, named_recovery, recycle, tsk, writeblock
+from app.services import active_files, carving, metadata, named_recovery, recycle, tsk, writeblock
 from app.services.hashing import hash_file
 
 logger = logging.getLogger("rea.scanner")
@@ -75,13 +75,18 @@ def run_scan(scan_id: int) -> None:
 
         total_findings = 0
 
-        # 1) Бүх файл (TSK fls -d — идэвхтэй + Shift+Delete устгагдсан) ------
-        _progress(db, job, 15, "Бүх файл + Shift+Delete устгагдсан (TSK -d)")
+        # 1a) Идэвхтэй файлууд — mount walk (бүх файл) + TSK fallback ------------
+        _progress(db, job, 10, "Идэвхтэй файлууд (mount walk — бүх файл)")
+        total_findings += _run_active_inventory(db, job, mount_point, source_path, byte_offsets)
+
+        # 1b) Устгагдсан файлууд — TSK + Shift+Delete сэргээлт -----------------
+        _progress(db, job, 28, "Устгагдсан файлууд (TSK + Shift+Delete)")
         for off in byte_offsets:
-            for entry in tsk.list_all_files(source_path, off):
+            for entry in tsk.list_deleted(source_path, off):
                 f = _finding_from_entry(job.id, entry)
-                if entry.deleted:
-                    _maybe_recover(source_path, off, entry, f, options, device)
+                f.finding_type = FindingType.DELETED_FILE
+                entry.deleted = True
+                _maybe_recover(source_path, off, entry, f, options, device)
                 _finalize_finding(db, f)
                 total_findings += 1
 
@@ -159,12 +164,13 @@ def _prepare_source(db, job: ScanJob, device: Device, options: dict):
     partitions = tsk.list_partitions(source_path)
     byte_offsets = [p.byte_offset for p in partitions] or [0]
 
-    # Recycle artifact-д зориулж read-only mount оролдоно.
-    if options.get("run_recycle", True) and device:
+    # Read-only mount — идэвхтэй файлын каталог + Recycle artifact.
+    if device:
         try:
-            mount_point = writeblock.mount_read_only(device.dev_path)
+            mount_point = writeblock.mount_read_only(source_path)
+            logger.info("Read-only mount: %s -> %s", source_path, mount_point)
         except Exception as exc:  # noqa: BLE001
-            logger.info("Read-only mount амжилтгүй (mock/dev байж болно): %s", exc)
+            logger.info("Read-only mount амжилтгүй: %s", exc)
             mount_point = None
 
     return source_path, byte_offsets, mount_point
@@ -173,6 +179,28 @@ def _prepare_source(db, job: ScanJob, device: Device, options: dict):
 # --------------------------------------------------------------------------- #
 # Finding builders
 # --------------------------------------------------------------------------- #
+def _finding_from_live_entry(scan_id: int, entry: active_files.LiveFileEntry) -> Finding:
+    """Mount walk-аар илэрсэн идэвхтэй файл."""
+    return Finding(
+        scan_id=scan_id,
+        finding_type=FindingType.ACTIVE_FILE,
+        file_name=entry.file_name,
+        original_path=entry.original_path,
+        size_bytes=entry.size_bytes,
+        mtime=entry.mtime,
+        atime=entry.atime,
+        ctime=entry.ctime,
+        crtime=entry.crtime,
+        source_tool=entry.source_tool,
+        meta={
+            **entry.meta,
+            "has_original_name": True,
+            "deleted": False,
+            "module": "active_file_inventory",
+        },
+    )
+
+
 def _finding_from_entry(scan_id: int, entry: tsk.DeletedEntry) -> Finding:
     """Файлын бичлэг (идэвхтэй эсвэл устгагдсан) — зам, нэр, MAC цагтай.
 
@@ -239,6 +267,76 @@ def _maybe_recover(
             finding.meta = {**finding.meta, "recovery_tool": "ntfsundelete"}
 
 
+def _prepare_finding(finding: Finding, *, hash_content: bool = False) -> None:
+    """MIME, severity тооцоолно (commit хийхгүй)."""
+    if hash_content and finding.recovered and finding.recovered_path and os.path.exists(finding.recovered_path):
+        try:
+            h = hash_file(finding.recovered_path)
+            finding.md5 = h.md5
+            finding.sha256 = h.sha256
+        except OSError:
+            pass
+        finding.mime_type = metadata.guess_mime(finding.recovered_path, finding.file_name)
+    else:
+        finding.mime_type = metadata.guess_mime("", finding.file_name)
+    _apply_risk(finding)
+
+
+def _flush_findings(db, batch: list[Finding]) -> int:
+    if not batch:
+        return 0
+    for f in batch:
+        db.add(f)
+    db.commit()
+    n = len(batch)
+    batch.clear()
+    return n
+
+
+def _run_active_inventory(
+    db,
+    job: ScanJob,
+    mount_point: str | None,
+    source_path: str,
+    byte_offsets: list[int],
+) -> int:
+    """Төхөөрөмж дээрх бүх идэвхтэй файлыг catalog-д бүртгэнэ."""
+    count = 0
+    batch: list[Finding] = []
+    seen: set[str] = set()
+    batch_size = 500
+
+    if mount_point:
+        for entry in active_files.scan_mount(mount_point):
+            key = entry.original_path.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            f = _finding_from_live_entry(job.id, entry)
+            _prepare_finding(f, hash_content=False)
+            batch.append(f)
+            if len(batch) >= batch_size:
+                count += _flush_findings(db, batch)
+
+    if count == 0 and not seen:
+        for off in byte_offsets:
+            for entry in tsk.list_active_files(source_path, off):
+                key = entry.name.lower()
+                if key in seen:
+                    continue
+                seen.add(key)
+                f = _finding_from_entry(job.id, entry)
+                f.finding_type = FindingType.ACTIVE_FILE
+                _prepare_finding(f, hash_content=False)
+                batch.append(f)
+                if len(batch) >= batch_size:
+                    count += _flush_findings(db, batch)
+
+    count += _flush_findings(db, batch)
+    logger.info("[scan %s] идэвхтэй файл: %d", job.id, count)
+    return count
+
+
 def _apply_risk(finding: Finding) -> None:
     """Эрсдэлийн үнэлгээ хийж, severity + шалтгааныг meta-д хадгална."""
     risk = metadata.assess_risk(
@@ -258,17 +356,7 @@ def _apply_risk(finding: Finding) -> None:
 
 def _finalize_finding(db, finding: Finding) -> None:
     """Hash, MIME, severity нөхөж DB-д хадгална."""
-    if finding.recovered and finding.recovered_path and os.path.exists(finding.recovered_path):
-        try:
-            h = hash_file(finding.recovered_path)
-            finding.md5 = h.md5
-            finding.sha256 = h.sha256
-        except OSError:
-            pass
-        finding.mime_type = metadata.guess_mime(finding.recovered_path, finding.file_name)
-    else:
-        finding.mime_type = metadata.guess_mime("", finding.file_name)
-    _apply_risk(finding)
+    _prepare_finding(finding, hash_content=True)
     db.add(finding)
     db.commit()
 
