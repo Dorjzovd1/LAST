@@ -1,0 +1,16 @@
+fastapi>=0.115.6
+uvicorn[standard]>=0.34.0
+sqlalchemy>=2.0.36
+pydantic>=2.11.7
+pydantic-settings>=2.7.1
+python-multipart>=0.0.20
+jinja2>=3.1.5
+python-dateutil>=2.9.0
+fpdf2>=2.8.1
+
+# Linux device detection (Ubuntu target). Windows/Mac deer suuihgui bol mock mode ajilna.
+pyudev>=0.24.3; sys_platform == "linux"
+
+# Test
+pytest>=8.3.4
+httpx>=0.28.1

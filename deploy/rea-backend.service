@@ -1,0 +1,35 @@
+# /etc/systemd/system/rea-backend.service
+# Removable Evidence Analyzer backend (FastAPI/uvicorn).
+# Device-d handahyn tuld root erh shaardana.
+#
+# Suuilgah:
+#   sudo cp deploy/rea-backend.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now rea-backend
+
+[Unit]
+Description=Removable Evidence Analyzer Backend
+After=network.target
+
+[Service]
+Type=simple
+# blockdev/mount/dd zereg device uildeld root shaardlagatai.
+User=root
+WorkingDirectory=/opt/rea/backend
+Environment="REA_DATABASE_URL=sqlite:////opt/rea/data/rea.db"
+Environment="REA_DATA_DIR=/opt/rea/data"
+Environment="REA_IMAGE_DIR=/opt/rea/data/images"
+Environment="REA_RECOVERED_DIR=/opt/rea/data/recovered"
+Environment="REA_EXPORT_DIR=/opt/rea/data/exports"
+Environment="REA_ALLOW_MOCK=0"
+ExecStart=/opt/rea/backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
+Restart=on-failure
+RestartSec=5
+
+# Security hardening (device handah ystoi tul zarim hyazgaarlaltyg suljuulj bolohgui).
+NoNewPrivileges=true
+ProtectHome=false
+PrivateTmp=false
+
+[Install]
+WantedBy=multi-user.target
