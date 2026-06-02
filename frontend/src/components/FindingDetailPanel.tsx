@@ -9,15 +9,33 @@ const SEV_LABEL: Record<string, string> = {
   normal: "Хэвийн",
 };
 
+const IMPACT_MN: Record<string, string> = {
+  low: "Бага",
+  moderate: "Дунд",
+  high: "Өндөр",
+};
+
 export function RiskExplanation({ finding }: { finding: Finding }) {
   const reasons = (finding.meta?.["risk_reasons"] as string[] | undefined) ?? [];
   const score = (finding.meta?.["risk_score"] as number) ?? 0;
+  const standard = (finding.meta?.["risk_standard"] as string) ?? "NIST SP 800-60 Rev. 1 + FIPS 199";
+  const c = (finding.meta?.["risk_confidentiality"] as string) ?? "—";
+  const i = (finding.meta?.["risk_integrity"] as string) ?? "—";
+  const a = (finding.meta?.["risk_availability"] as string) ?? "—";
+  const overall = (finding.meta?.["risk_overall_impact"] as string) ?? "—";
 
   return (
     <div className="risk-box">
       <div className="risk-head">
         <span>Эрсдэлийн үнэлгээ — {SEV_LABEL[finding.severity] ?? finding.severity}</span>
-        <span className={`badge sev-${finding.severity}`}>Оноо: {score}</span>
+        <span className={`badge sev-${finding.severity}`}>FIPS: {score}</span>
+      </div>
+      <div style={{ color: "var(--text-dim)", fontSize: 11, marginBottom: 8 }}>
+        Стандарт: {standard}
+      </div>
+      <div style={{ fontSize: 12, marginBottom: 8 }}>
+        C (Нууцлал): {IMPACT_MN[c] ?? c} · I (Бүрэн бүтэн байдал): {IMPACT_MN[i] ?? i} · A (Байдал):{" "}
+        {IMPACT_MN[a] ?? a} · Нийт: {IMPACT_MN[overall] ?? overall}
       </div>
       {reasons.length > 0 ? (
         <ul className="risk-reasons">

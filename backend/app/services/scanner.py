@@ -373,6 +373,12 @@ def _apply_risk(finding: Finding) -> None:
         "risk_score": risk.score,
         "risk_reasons": risk.reasons,
         "risk_level": risk.severity.value,
+        "risk_standard": risk.standard,
+        "risk_overall_impact": risk.overall_impact,
+        "risk_confidentiality": risk.confidentiality,
+        "risk_integrity": risk.integrity,
+        "risk_availability": risk.availability,
+        "risk_information_types": risk.information_types,
     }
 
 

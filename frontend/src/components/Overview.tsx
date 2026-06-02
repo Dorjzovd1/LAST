@@ -80,20 +80,25 @@ export default function Overview() {
             </div>
           )}
           <details className="criteria">
-            <summary>Эрсдэл үнэлэх стандарт шалгуур</summary>
+            <summary>Эрсдэлийн үнэлгээний стандарт (NIST + FIPS)</summary>
             <ul>
-              <li>Эмзэг түлхүүр үг (password, secret, нууц…) — <b>+5</b></li>
-              <li>Эмзэг өргөтгөл (docx, xlsx, pdf, db, pem, key…) — <b>+3</b></li>
-              <li>Архив/шифрлэгдсэн (zip, rar, 7z, kdbx, gpg) — <b>+2</b></li>
-              <li>Гүйцэтгэх/скрипт (exe, dll, ps1, sh…) — <b>+2</b></li>
-              <li>Carving (unallocated)-аас сэргээгдсэн — <b>+2</b></li>
-              <li>Устгагдсан / Recycle / Slack — <b>+1</b></li>
-              <li>Агуулга амжилттай сэргээгдсэн — <b>+1</b></li>
+              <li>
+                <b>NIST SP 800-60 Rev. 1</b> — файлын мэдээллийн төрөл (Authentication, PII,
+                Database, Business records, Executable г.м.)
+              </li>
+              <li>
+                <b>FIPS 199</b> — Нууцлал (C), Бүрэн бүтэн байдал (I), Байдал (A) нөлөөлөл;
+                нийт түвшин = max(C, I, A)
+              </li>
+              <li>
+                <b>NIST SP 800-86</b> — forensic контекст (carving, slack, сэргээлт, chain of
+                custody)
+              </li>
             </ul>
             <div className="criteria-note">
-              Нийт оноо: <b style={{ color: "var(--red)" }}>≥5 Өндөр</b> ·{" "}
-              <b style={{ color: "var(--orange)" }}>2–4 Дунд</b> ·{" "}
-              <b style={{ color: "var(--green)" }}>&lt;2 Хэвийн</b>
+              FIPS overall: <b style={{ color: "var(--red)" }}>HIGH → Өндөр</b> ·{" "}
+              <b style={{ color: "var(--orange)" }}>MODERATE → Дунд</b> ·{" "}
+              <b style={{ color: "var(--green)" }}>LOW → Хэвийн</b>
             </div>
           </details>
         </div>

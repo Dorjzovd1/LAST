@@ -178,18 +178,33 @@ def generate_pdf(data: dict) -> bytes:
         new_x="LMARGIN", new_y="NEXT",
     )
 
-    # Шалгуурын жагсаалт (яагаад сэжигтэй гэж үнэлснийг тайлбарлах стандарт).
+    # NIST SP 800-60 + FIPS 199 стандартын тайлбар.
     pdf.ln(2)
     pdf._font("B", 9)
-    pdf.cell(0, 6, pdf._t("Эрсдэл үнэлэх стандарт шалгуур (оноо):"), new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 6, pdf._t("Эрсдэлийн үнэлгээний стандарт:"), new_x="LMARGIN", new_y="NEXT")
     pdf._font("", 9)
-    from app.services.metadata import RISK_RULES
+    from app.services.risk_assessment import RISK_FRAMEWORK
 
-    for r in RISK_RULES:
-        pdf.cell(0, 5.5, pdf._t(f"  • {r['rule']}  (+{r['points']})"), new_x="LMARGIN", new_y="NEXT")
-    pdf._font("", 9)
+    pdf.multi_cell(
+        0,
+        5.5,
+        pdf._t(RISK_FRAMEWORK["standard"]),
+        new_x="LMARGIN",
+        new_y="NEXT",
+    )
+    for ref in RISK_FRAMEWORK["references"]:
+        pdf.cell(0, 5.5, pdf._t(f"  • {ref}"), new_x="LMARGIN", new_y="NEXT")
     pdf.set_text_color(100, 100, 100)
-    pdf.multi_cell(0, 5.5, pdf._t("Дүгнэлт: оноо ≥ 5 → Өндөр, 2–4 → Дунд, < 2 → Хэвийн."), new_x="LMARGIN", new_y="NEXT")
+    pdf.multi_cell(
+        0,
+        5.5,
+        pdf._t(
+            "FIPS 199: Нийт түвшин = max(Нууцлал C, Бүрэн бүтэн байдал I, Байдал A). "
+            "HIGH → Өндөр, MODERATE → Дунд, LOW → Хэвийн."
+        ),
+        new_x="LMARGIN",
+        new_y="NEXT",
+    )
     pdf.set_text_color(30, 30, 30)
 
     # 4. Файлын жагсаалт (MACB цаг)

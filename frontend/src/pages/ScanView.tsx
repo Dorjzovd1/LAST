@@ -262,7 +262,8 @@ function RiskTab({ findings, high, medium }: { findings: Finding[]; high: number
           <strong>{medium}</strong> файл
         </div>
         <p style={{ color: "var(--text-dim)", fontSize: 12, margin: "12px 0 0", width: "100%" }}>
-          Бүх файлын metadata-аас эрсдэлийн оноо тооцоолно — идэвхтэй болон устгагдсан файл хоёул.
+          NIST SP 800-60 Rev. 1 + FIPS 199: мэдээллийн төрөл (C/I/A) болон NIST SP 800-86 forensic
+          контекстээр үнэлнэ. Нийт түвшин = max(C, I, A).
         </p>
       </div>
       {findings.length === 0 ? (
@@ -271,7 +272,7 @@ function RiskTab({ findings, high, medium }: { findings: Finding[]; high: number
         <table>
           <thead>
             <tr>
-              <th>Оноо</th>
+              <th>FIPS</th>
               <th>Төлөв</th>
               <th>Файл</th>
               <th>Зам</th>

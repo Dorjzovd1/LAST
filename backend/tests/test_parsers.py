@@ -39,21 +39,23 @@ def test_parse_i_file_v2(tmp_path):
     assert "secret.txt" in art.original_path
 
 
-def test_risk_assessment_levels():
-    # Эмзэг түлхүүр үг -> Өндөр, шалтгаантай.
+def test_risk_assessment_nist_fips():
+    """NIST SP 800-60 + FIPS 199 — түвшний жишээ."""
     high = assess_risk(finding_type=FindingType.DELETED_FILE, file_name="passwords.txt", recovered=True)
     assert high.severity == Severity.HIGH
-    assert high.score >= 5
-    assert any("түлхүүр" in r for r in high.reasons)
+    assert high.overall_impact == "high"
+    assert high.confidentiality == "high"
+    assert any("NIST SP 800-60" in r for r in high.reasons)
+    assert any("FIPS 199" in r for r in high.reasons)
 
-    # Эмзэг өргөтгөл + устгагдсан -> Дунд.
     medium = assess_risk(finding_type=FindingType.DELETED_FILE, file_name="report.docx", recovered=False)
     assert medium.severity == Severity.MEDIUM
+    assert medium.overall_impact == "moderate"
 
-    # Энгийн файл -> Хэвийн.
     normal = assess_risk(finding_type=FindingType.DELETED_FILE, file_name="image.bin", recovered=False)
     assert normal.severity == Severity.NORMAL
-    assert normal.reasons  # шалтгаан хоосон биш
+    assert normal.overall_impact == "low"
+    assert normal.reasons
 
 
 def test_trashinfo(tmp_path):
