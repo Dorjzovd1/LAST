@@ -54,8 +54,8 @@ def test_full_pipeline(client):
 
     # 5. Findings — бүх файл (идэвхтэй + устгагдсан) жагсаагдсан байх ёстой
     findings = client.get("/api/findings", params={"scan_id": scan["id"]}).json()
-    assert len(findings) > 0
-    types = {f["finding_type"] for f in findings}
+    assert len(findings["items"]) > 0
+    types = {f["finding_type"] for f in findings["items"]}
     assert "active_file" in types
     assert "deleted_file" in types
 
@@ -63,17 +63,17 @@ def test_full_pipeline(client):
     active_only = client.get(
         "/api/findings", params={"scan_id": scan["id"], "finding_type": "active_file"}
     ).json()
-    assert all(f["finding_type"] == "active_file" for f in active_only)
+    assert all(f["finding_type"] == "active_file" for f in active_only["items"])
 
     # MAC цаг (хэзээ ямар үйлдэл хийсэн) бүртгэгдсэн байх ёстой
-    assert any(f["mtime"] for f in findings)
+    assert any(f["mtime"] for f in findings["items"])
 
     # 7. Timeline
     timeline = client.get(f"/api/scans/{scan['id']}/timeline").json()
     assert len(timeline) > 0
 
     summary = client.get(f"/api/scans/{scan['id']}/summary").json()
-    assert summary["total_files"] == len(findings)
+    assert summary["total_files"] == findings["total"]
     assert summary["active_files"] >= 1
     assert summary["timeline_events"] >= 1
 
@@ -83,7 +83,7 @@ def test_full_pipeline(client):
     assert "Forensic" in html.text
     assert "Хэргийн мэдээлэл" not in html.text
     rep = client.get(f"/api/reports/scan/{scan['id']}/json").json()
-    assert rep["summary"]["total_findings"] == len(findings)
+    assert rep["summary"]["total_findings"] == findings["total"]
     assert "case" not in rep
     pdf = client.get(f"/api/reports/scan/{scan['id']}/pdf")
     assert pdf.status_code == 200
@@ -92,14 +92,14 @@ def test_full_pipeline(client):
     assert len(pdf.content) > 1000
 
     # 8b. Файлын албан ёсны эрсдэлийн тайлан (narrative)
-    risk = client.get(f"/api/findings/{findings[0]['id']}/risk-report").json()
+    risk = client.get(f"/api/findings/{findings['items'][0]['id']}/risk-report").json()
     assert risk["executive_summary"]
     assert risk.get("examiner_opinion")
     assert risk.get("recommendations_narrative")
 
     file_tl = client.get(f"/api/scans/{scan['id']}/timeline/files").json()
     assert len(file_tl) >= 1
-    detail = client.get(f"/api/findings/{findings[0]['id']}/file-timeline").json()
+    detail = client.get(f"/api/findings/{findings['items'][0]['id']}/file-timeline").json()
     assert detail["events"]
     assert detail["narrative"]
 
@@ -127,8 +127,8 @@ def test_recover_download(client):
     _wait_scan(client, scan["id"])
 
     findings = client.get("/api/findings", params={"scan_id": scan["id"], "recovered": True}).json()
-    assert findings, "сэргээсэн файл байх ёстой"
-    fid = findings[0]["id"]
+    assert findings["items"], "сэргээсэн файл байх ёстой"
+    fid = findings["items"][0]["id"]
     dl = client.get(f"/api/findings/{fid}/download")
     assert dl.status_code == 200
     assert len(dl.content) > 0

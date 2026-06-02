@@ -78,6 +78,13 @@ export interface Finding {
   created_at: string;
 }
 
+export interface FindingsPage {
+  items: Finding[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
 export interface ScanSummary {
   scan_id: number;
   total_files: number;

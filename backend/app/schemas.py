@@ -103,7 +103,6 @@ class ScanOut(ORMModel):
         return _serialize_utc_datetime(dt)
 
 
-# ----------------------------- Finding ------------------------------------- #
 class FindingOut(ORMModel):
     id: int
     scan_id: int
@@ -129,6 +128,13 @@ class FindingOut(ORMModel):
     @field_serializer("mtime", "atime", "ctime", "crtime", "created_at")
     def _ser_finding_times(self, dt: datetime | None) -> datetime | None:
         return _serialize_utc_datetime(dt)
+
+
+class FindingsPageOut(BaseModel):
+    items: list[FindingOut]
+    total: int
+    limit: int
+    offset: int
 
 
 class TimelineEventOut(ORMModel):
@@ -198,6 +204,13 @@ class ScanSummaryOut(BaseModel):
     risk_medium: int
     risk_normal: int
     recovered_files: int
+
+
+class ScanPurgeOut(BaseModel):
+    scan_id: int
+    findings_removed: int
+    timeline_removed: int
+    scan_removed: int
 
 
 class AuditLogOut(ORMModel):

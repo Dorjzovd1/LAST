@@ -4,6 +4,7 @@ import type {
   DetectedDevice,
   Device,
   Finding,
+  FindingsPage,
   HealthInfo,
   Overview,
   Scan,
@@ -62,6 +63,11 @@ export const api = {
     http<Scan>("/scans", { method: "POST", body: JSON.stringify({ device_id, options }) }),
   getScan: (id: number) => http<Scan>(`/scans/${id}`),
   cancelScan: (id: number) => http<Scan>(`/scans/${id}/cancel`, { method: "POST" }),
+  purgeScan: (id: number) =>
+    http<{ scan_id: number; findings_removed: number; timeline_removed: number; scan_removed: number }>(
+      `/scans/${id}/purge`,
+      { method: "POST" }
+    ),
   scanTimeline: (id: number) => http<TimelineEvent[]>(`/scans/${id}/timeline`),
   scanTimelineFiles: (id: number) => http<FileTimelineSummary[]>(`/scans/${id}/timeline/files`),
   scanSummary: (id: number) => http<ScanSummary>(`/scans/${id}/summary`),
@@ -72,7 +78,7 @@ export const api = {
     Object.entries(params).forEach(([k, v]) => {
       if (v !== undefined && v !== "") qs.append(k, String(v));
     });
-    return http<Finding[]>(`/findings?${qs.toString()}`);
+    return http<FindingsPage>(`/findings?${qs.toString()}`);
   },
   previewFinding: (id: number) =>
     http<{ preview: string; available: boolean; truncated?: boolean }>(`/findings/${id}/preview`),

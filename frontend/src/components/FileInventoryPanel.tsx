@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
 import type { Finding } from "../api/types";
 import {
@@ -15,13 +15,15 @@ import { FindingDetailPanel } from "./FindingDetailPanel";
 
 type StatusFilter = "" | "active" | "deleted";
 
+const PAGE_SIZE = 100;
+
 export default function FileInventoryPanel({
-  findings,
+  scanId,
   title,
   subtitle,
   defaultStatusFilter = "",
 }: {
-  findings: Finding[];
+  scanId: number;
   title: string;
   subtitle?: string;
   defaultStatusFilter?: StatusFilter;
@@ -30,21 +32,54 @@ export default function FileInventoryPanel({
   const [severity, setSeverity] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>(defaultStatusFilter);
   const [selected, setSelected] = useState<Finding | null>(null);
+  const [page, setPage] = useState(0);
+  const [findings, setFindings] = useState<Finding[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
 
-  const displayed = useMemo(() => {
-    let list = findings;
-    if (statusFilter === "active") list = list.filter((f) => findingIsActive(f.finding_type));
-    else if (statusFilter === "deleted")
-      list = list.filter((f) => !findingIsActive(f.finding_type));
-    if (severity) list = list.filter((f) => f.severity === severity);
-    if (q) {
-      const s = q.toLowerCase();
-      list = list.filter(
-        (f) => f.file_name.toLowerCase().includes(s) || (f.original_path || "").toLowerCase().includes(s)
-      );
+  const queryKey = useMemo(
+    () => `${scanId}|${statusFilter}|${severity}|${q.trim().toLowerCase()}`,
+    [scanId, statusFilter, severity, q]
+  );
+
+  useEffect(() => {
+    setPage(0);
+  }, [queryKey]);
+
+  const loadPage = useCallback(async () => {
+    setLoading(true);
+    setLoadError("");
+    try {
+      const params: Record<string, string | number | boolean | undefined> = {
+        scan_id: scanId,
+        limit: PAGE_SIZE,
+        offset: page * PAGE_SIZE,
+      };
+      if (statusFilter === "active") params.finding_type = "active_file";
+      else if (statusFilter === "deleted") params.deleted_only = true;
+      if (severity) params.severity = severity;
+      if (q.trim()) params.q = q.trim();
+
+      const res = await api.listFindings(params);
+      setFindings(res.items);
+      setTotal(res.total);
+    } catch (e) {
+      setFindings([]);
+      setTotal(0);
+      setLoadError((e as Error).message);
+    } finally {
+      setLoading(false);
     }
-    return list;
-  }, [findings, q, severity, statusFilter]);
+  }, [scanId, statusFilter, severity, q, page]);
+
+  useEffect(() => {
+    loadPage();
+  }, [loadPage]);
+
+  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const from = total === 0 ? 0 : page * PAGE_SIZE + 1;
+  const to = Math.min(total, (page + 1) * PAGE_SIZE);
 
   return (
     <div>
@@ -72,78 +107,106 @@ export default function FileInventoryPanel({
           <option value="normal">Хэвийн</option>
         </select>
         <span style={{ color: "var(--text-dim)", fontSize: 12, alignSelf: "center" }}>
-          {displayed.length} / {findings.length} файл
+          {total === 0 ? "0 файл" : `${from}–${to} / ${total} файл`}
         </span>
       </div>
 
-      {displayed.length === 0 ? (
+      {loadError && (
+        <div className="warn-banner" style={{ marginBottom: 12 }}>
+          Файлын жагсаалт ачаалж чадсангүй: {loadError}
+        </div>
+      )}
+
+      {loading ? (
+        <div className="empty">Файлын жагсаалт ачаалж байна…</div>
+      ) : total === 0 ? (
         <div className="empty">Файл олдсонгүй. Шинэ scan эхлүүлнэ үү (sudo backend).</div>
       ) : (
-        <div className="table-scroll">
-          <table>
-            <thead>
-              <tr>
-                <th>Төлөв</th>
-                <th>Эрсдэл</th>
-                <th>Файлын нэр</th>
-                <th>Эх зам</th>
-                <th>Хэмжээ</th>
-                <th>MIME</th>
-                <th>Born</th>
-                <th>Modified</th>
-                <th>Accessed</th>
-                <th>Changed</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {displayed.map((f) => {
-                const active = findingIsActive(f.finding_type);
-                const score = (f.meta?.["risk_score"] as number) ?? 0;
-                return (
-                  <tr key={f.id}>
-                    <td>
-                      <span className={`badge ${active ? "status-active" : "status-deleted"}`}>
-                        {findingFileStatusLabel(f.finding_type)}
-                      </span>
-                    </td>
-                    <td>
-                      <span className={`badge sev-${f.severity}`}>{f.severity}</span>
-                      {score > 0 && (
-                        <span style={{ fontSize: 10, marginLeft: 4, color: "var(--text-dim)" }}>{score}</span>
-                      )}
-                    </td>
-                    <td>
-                      <div className="file-name-cell">{findingDisplayName(f.original_path, f.file_name)}</div>
-                      <div style={{ fontSize: 10, color: "var(--text-dim)" }}>{findingTypeLabel(f.finding_type)}</div>
-                    </td>
-                    <td>
-                      <div className="mono path-cell">{f.original_path || "—"}</div>
-                    </td>
-                    <td>{formatBytes(f.size_bytes)}</td>
-                    <td style={{ fontSize: 11 }}>{f.mime_type?.split("/").pop() || "—"}</td>
-                    <td style={{ fontSize: 11 }}>{formatDate(findingMacDate(f, "crtime"))}</td>
-                    <td style={{ fontSize: 11 }}>{formatDate(findingMacDate(f, "mtime"))}</td>
-                    <td style={{ fontSize: 11 }}>{formatDate(findingMacDate(f, "atime"))}</td>
-                    <td style={{ fontSize: 11 }}>{formatDate(findingMacDate(f, "ctime"))}</td>
-                    <td>
-                      <div className="row-flex">
-                        <button className="btn secondary sm" onClick={() => setSelected(f)}>
-                          Metadata
-                        </button>
-                        {findingIsDownloadable(f) && (
-                          <a className="btn sm" href={api.downloadUrl(f.id)}>
-                            Татах
-                          </a>
+        <>
+          <div className="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Төлөв</th>
+                  <th>Эрсдэл</th>
+                  <th>Файлын нэр</th>
+                  <th>Эх зам</th>
+                  <th>Хэмжээ</th>
+                  <th>MIME</th>
+                  <th>Born</th>
+                  <th>Modified</th>
+                  <th>Accessed</th>
+                  <th>Changed</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {findings.map((f) => {
+                  const active = findingIsActive(f.finding_type);
+                  const score = (f.meta?.["risk_score"] as number) ?? 0;
+                  return (
+                    <tr key={f.id}>
+                      <td>
+                        <span className={`badge ${active ? "status-active" : "status-deleted"}`}>
+                          {findingFileStatusLabel(f.finding_type)}
+                        </span>
+                      </td>
+                      <td>
+                        <span className={`badge sev-${f.severity}`}>{f.severity}</span>
+                        {score > 0 && (
+                          <span style={{ fontSize: 10, marginLeft: 4, color: "var(--text-dim)" }}>{score}</span>
                         )}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                      </td>
+                      <td>
+                        <div className="file-name-cell">{findingDisplayName(f.original_path, f.file_name)}</div>
+                        <div style={{ fontSize: 10, color: "var(--text-dim)" }}>{findingTypeLabel(f.finding_type)}</div>
+                      </td>
+                      <td>
+                        <div className="mono path-cell">{f.original_path || "—"}</div>
+                      </td>
+                      <td>{formatBytes(f.size_bytes)}</td>
+                      <td style={{ fontSize: 11 }}>{f.mime_type?.split("/").pop() || "—"}</td>
+                      <td style={{ fontSize: 11 }}>{formatDate(findingMacDate(f, "crtime"))}</td>
+                      <td style={{ fontSize: 11 }}>{formatDate(findingMacDate(f, "mtime"))}</td>
+                      <td style={{ fontSize: 11 }}>{formatDate(findingMacDate(f, "atime"))}</td>
+                      <td style={{ fontSize: 11 }}>{formatDate(findingMacDate(f, "ctime"))}</td>
+                      <td>
+                        <div className="row-flex">
+                          <button className="btn secondary sm" onClick={() => setSelected(f)}>
+                            Metadata
+                          </button>
+                          {findingIsDownloadable(f) && (
+                            <a className="btn sm" href={api.downloadUrl(f.id)}>
+                              Татах
+                            </a>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {pageCount > 1 && (
+            <div className="row-flex" style={{ marginTop: 12 }}>
+              <button className="btn secondary sm" disabled={page === 0} onClick={() => setPage((p) => p - 1)}>
+                ← Өмнөх
+              </button>
+              <span style={{ fontSize: 12, color: "var(--text-dim)" }}>
+                Хуудас {page + 1} / {pageCount}
+              </span>
+              <button
+                className="btn secondary sm"
+                disabled={page >= pageCount - 1}
+                onClick={() => setPage((p) => p + 1)}
+              >
+                Дараах →
+              </button>
+            </div>
+          )}
+        </>
       )}
 
       {selected && <FindingDetailPanel finding={selected} onClose={() => setSelected(null)} />}

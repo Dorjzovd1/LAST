@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { useParams, useSearchParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
-import type { Finding, Scan, ScanSummary, TimelineEvent, FileTimelineSummary, FileTimelineDetail } from "../api/types";
+import type { Finding, Scan, ScanSummary, FileTimelineSummary, FileTimelineDetail } from "../api/types";
 import FileInventoryPanel from "../components/FileInventoryPanel";
 import RiskOfficialReportModal from "../components/RiskOfficialReportModal";
 import { useEvents } from "../lib/events";
@@ -12,7 +12,8 @@ import {
   findingIsActive,
 } from "../lib/format";
 import { activeScanTab } from "../lib/scanTabs";
-import { buildFileTimelineDetail, sortFileSummaries, summarizeFinding } from "../lib/fileTimeline";
+
+const PAGE_SIZE = 100;
 
 const EVENT_LABELS: Record<string, string> = {
   B: "Born — үүссэн",
@@ -41,19 +42,26 @@ export default function ScanView() {
   const tabParam = searchParams.get("tab");
   const [scan, setScan] = useState<Scan | null>(null);
   const [summary, setSummary] = useState<ScanSummary | null>(null);
-  const [allFindings, setAllFindings] = useState<Finding[]>([]);
-  const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
+  const [loadError, setLoadError] = useState("");
+  const [purged, setPurged] = useState<{ findings: number } | null>(null);
+  const [finishing, setFinishing] = useState(false);
   const tab = activeScanTab(tabParam);
   const { subscribe } = useEvents();
 
   const reload = async () => {
-    setScan(await api.getScan(id));
-    setAllFindings(await api.listFindings({ scan_id: id }));
-    setTimeline(await api.scanTimeline(id));
+    setLoadError("");
     try {
+      setScan(await api.getScan(id));
       setSummary(await api.scanSummary(id));
-    } catch {
-      setSummary(null);
+      setPurged(null);
+    } catch (e) {
+      const msg = (e as Error).message;
+      if (msg.startsWith("404:")) {
+        setScan(null);
+        setSummary(null);
+      } else {
+        setLoadError(msg);
+      }
     }
   };
 
@@ -77,52 +85,92 @@ export default function ScanView() {
             : prev
         );
       }
-      if (ev.type === "scan_completed" || ev.type === "scan_failed") reload();
+      if (ev.type === "scan_completed") reload();
+      if (ev.type === "scan_purged") {
+        setPurged({
+          findings: Number((ev.data as { findings_removed?: number }).findings_removed ?? 0),
+        });
+        setScan(null);
+        setSummary(null);
+      }
+      if (ev.type === "scan_failed") reload();
     });
   }, [subscribe, id]);
 
   const counts = useMemo(() => {
-    if (summary) {
-      return {
-        total: summary.total_files,
-        active: summary.active_files,
-        deleted: summary.deleted_files + summary.recycle_artifacts + summary.carved_files,
-        high: summary.risk_high,
-        medium: summary.risk_medium,
-        timeline: summary.timeline_events,
-        recovered: summary.recovered_files,
-      };
+    if (!summary) {
+      return { total: 0, active: 0, deleted: 0, high: 0, medium: 0, timeline: 0, recovered: 0 };
     }
-    const active = allFindings.filter((f) => findingIsActive(f.finding_type)).length;
-    const deleted = allFindings.filter((f) => !findingIsActive(f.finding_type)).length;
     return {
-      total: allFindings.length,
-      active,
-      deleted,
-      high: allFindings.filter((f) => f.severity === "high").length,
-      medium: allFindings.filter((f) => f.severity === "medium").length,
-      timeline: timeline.length,
-      recovered: allFindings.filter((f) => f.recovered).length,
+      total: summary.total_files,
+      active: summary.active_files,
+      deleted: summary.deleted_files + summary.recycle_artifacts + summary.carved_files,
+      high: summary.risk_high,
+      medium: summary.risk_medium,
+      timeline: summary.timeline_events,
+      recovered: summary.recovered_files,
     };
-  }, [allFindings, summary, timeline]);
+  }, [summary]);
 
-  const activeFindings = useMemo(
-    () => allFindings.filter((f) => findingIsActive(f.finding_type)),
-    [allFindings]
-  );
-  const deletedFindings = useMemo(
-    () => allFindings.filter((f) => !findingIsActive(f.finding_type)),
-    [allFindings]
-  );
-  const riskFindings = useMemo(
-    () =>
-      [...allFindings]
-        .filter((f) => f.severity === "high" || f.severity === "medium")
-        .sort((a, b) => ((b.meta?.["risk_score"] as number) ?? 0) - ((a.meta?.["risk_score"] as number) ?? 0)),
-    [allFindings]
-  );
+  const registeredCount = useMemo(() => {
+    const m = scan?.current_step?.match(/(\d+)\s+файл бүртгэгдсэн/);
+    return m ? Number(m[1]) : null;
+  }, [scan?.current_step]);
 
-  if (!scan) return <div className="empty">Ачаалж байна…</div>;
+  const dataMismatch =
+    scan?.status === "completed" &&
+    registeredCount != null &&
+    registeredCount > 0 &&
+    summary != null &&
+    summary.total_files === 0;
+
+  const finishScan = async () => {
+    const total = summary?.total_files ?? counts.total;
+    const msg =
+      `Scan #${id}-ийн бүх өгөгдөл (файлын жагсаалт, timeline, сэргээсэн ${summary?.recovered_files ?? 0} файл) ` +
+      `сервер болон үйлдлийн системээс бүрмөсөн устгагдана.\n\n` +
+      `PDF/HTML тайлангаа татсан эсэхээ шалгаад үргэлжлүүлнэ үү.\n\nДууслаа гэж тэмдэглэх үү?`;
+    if (!confirm(msg)) return;
+    setFinishing(true);
+    try {
+      const res = await api.purgeScan(id);
+      setPurged({ findings: res.findings_removed });
+      setScan(null);
+      setSummary(null);
+    } catch (e) {
+      alert("Устгахад алдаа: " + (e as Error).message);
+    } finally {
+      setFinishing(false);
+    }
+  };
+
+  if (!scan && purged) {
+    return (
+      <div>
+        <h1 className="page-title">Шинжилгээ #{id} дууссан</h1>
+        <div className="panel">
+          <p style={{ marginTop: 0 }}>
+            Scan-ийн өгөгдөл амжилттай цэвэрлэгдлээ
+            {purged.findings > 0 && (
+              <>
+                {" "}
+                (<b>{purged.findings.toLocaleString()}</b> файлын бүртгэл, сэргээсэн агуулга)
+              </>
+            )}
+            .
+          </p>
+          <p style={{ color: "var(--text-dim)", fontSize: 13 }}>
+            Сервер дээр scan хадгалагдаагүй. Дахин шинжлэх бол Dashboard-оос шинэ scan эхлүүлнэ.
+          </p>
+          <Link className="btn sm" to="/">
+            Dashboard руу буцах
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  if (!scan) return <div className="empty">{loadError || "Ачаалж байна…"}</div>;
 
   const running = scan.status === "running" || scan.status === "pending";
 
@@ -164,6 +212,17 @@ export default function ScanView() {
           </div>
         )}
         {scan.error && <div style={{ color: "var(--red)", marginTop: 8 }}>{scan.error}</div>}
+        {loadError && (
+          <div className="warn-banner" style={{ marginTop: 12 }}>
+            Scan мэдээлэл ачаалж чадсангүй: {loadError}
+          </div>
+        )}
+        {dataMismatch && (
+          <div className="warn-banner" style={{ marginTop: 12 }}>
+            Scan <b>{registeredCount}</b> файл бүртгэсэн гэж тэмдэглэсэн боловч өгөгдлийн сан хоосон байна.
+            Hard disk сэргээлтийн дараа DB эвдэрсэн эсвэл хуучин scan байж болно — Dashboard-оос <b>шинэ scan</b> хийнэ үү.
+          </div>
+        )}
 
         <div className="stat-row" style={{ marginTop: 16 }}>
           <div className="stat highlight-stat">
@@ -192,14 +251,14 @@ export default function ScanView() {
       <div className="panel">
         {tab === "inventory" && (
           <FileInventoryPanel
-            findings={allFindings}
+            scanId={id}
             title="Нийт файлын metadata"
             subtitle="Flash/USB дээр байгаа бүх файл — идэвхтэй (pptx, docx…) + устгагдсан. Explorer-т харагдах файлууд энд."
           />
         )}
         {tab === "active" && (
           <FileInventoryPanel
-            findings={activeFindings}
+            scanId={id}
             title="Идэвхтэй файлууд"
             subtitle="Төхөөрөмж дээр одоо байгаа, ашиглагдаж байгаа файлууд."
             defaultStatusFilter="active"
@@ -207,25 +266,54 @@ export default function ScanView() {
         )}
         {tab === "deleted" && (
           <FileInventoryPanel
-            findings={deletedFindings}
+            scanId={id}
             title="Устгагдсан файлууд"
             subtitle="Shift+Delete, Recycle Bin, carving — metadata + сэргээлт."
             defaultStatusFilter="deleted"
           />
         )}
         {tab === "risk" && (
-          <RiskTab findings={riskFindings} high={counts.high} medium={counts.medium ?? 0} />
+          <RiskTab scanId={id} high={counts.high} medium={counts.medium ?? 0} />
         )}
-        {tab === "timeline" && (
-          <TimelineTab scanId={id} findings={allFindings} scanStatus={scan.status} />
-        )}
+        {tab === "timeline" && <TimelineTab scanId={id} scanStatus={scan.status} />}
       </div>
+
+      {!running && scan.status !== "pending" && (
+        <div className="panel scan-finish-panel">
+          <p style={{ margin: "0 0 12px", color: "var(--text-dim)", fontSize: 13 }}>
+            Тайлан татаж, шаардлагатай файлуудаа хадгалсны дараа доорх товчийг дарна уу.
+            Сэргээсэн файлууд болон scan-ийн бүх өгөгдөл серверээс устгагдана.
+          </p>
+          <button className="btn danger" disabled={finishing} onClick={finishScan}>
+            {finishing ? "Устгаж байна…" : "Дууслаа"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
 
-function RiskTab({ findings, high, medium }: { findings: Finding[]; high: number; medium: number }) {
+function RiskTab({ scanId, high, medium }: { scanId: number; high: number; medium: number }) {
+  const [findings, setFindings] = useState<Finding[]>([]);
+  const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Finding | null>(null);
+
+  useEffect(() => {
+    setLoading(true);
+    Promise.all([
+      api.listFindings({ scan_id: scanId, severity: "high", limit: PAGE_SIZE, offset: 0 }),
+      api.listFindings({ scan_id: scanId, severity: "medium", limit: PAGE_SIZE, offset: 0 }),
+    ])
+      .then(([highPage, mediumPage]) => {
+        const merged = [...highPage.items, ...mediumPage.items];
+        merged.sort(
+          (a, b) => ((b.meta?.["risk_score"] as number) ?? 0) - ((a.meta?.["risk_score"] as number) ?? 0)
+        );
+        setFindings(merged);
+      })
+      .catch(() => setFindings([]))
+      .finally(() => setLoading(false));
+  }, [scanId]);
 
   return (
     <div>
@@ -243,7 +331,9 @@ function RiskTab({ findings, high, medium }: { findings: Finding[]; high: number
           контекстээр үнэлнэ. Нийт түвшин = max(C, I, A).
         </p>
       </div>
-      {findings.length === 0 ? (
+      {loading ? (
+        <div className="empty">Эрсдэлийн жагсаалт ачаалж байна…</div>
+      ) : findings.length === 0 ? (
         <div className="empty">Эрсдэлтэй файл илрээгүй.</div>
       ) : (
         <table>
@@ -284,15 +374,7 @@ function RiskTab({ findings, high, medium }: { findings: Finding[]; high: number
   );
 }
 
-function TimelineTab({
-  scanId,
-  findings,
-  scanStatus,
-}: {
-  scanId: number;
-  findings: Finding[];
-  scanStatus: Scan["status"];
-}) {
+function TimelineTab({ scanId, scanStatus }: { scanId: number; scanStatus: Scan["status"] }) {
   const [files, setFiles] = useState<FileTimelineSummary[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [detail, setDetail] = useState<FileTimelineDetail | null>(null);
@@ -300,58 +382,52 @@ function TimelineTab({
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [query, setQuery] = useState("");
   const [reverse, setReverse] = useState(false);
-
-  const fallbackFiles = useMemo(
-    () => sortFileSummaries(findings.map(summarizeFinding)),
-    [findings]
-  );
+  const [page, setPage] = useState(0);
+  const PAGE = 200;
 
   useEffect(() => {
-    if (fallbackFiles.length > 0) {
-      setFiles(fallbackFiles);
-      setSelectedId((prev) => prev ?? fallbackFiles[0].finding_id);
-    }
     setLoadingFiles(true);
     api
       .scanTimelineFiles(scanId)
       .then((rows) => {
-        const list = rows.length > 0 ? sortFileSummaries(rows) : fallbackFiles;
-        setFiles(list);
-        if (list.length > 0) setSelectedId((prev) => prev ?? list[0].finding_id);
+        setFiles(rows);
+        if (rows.length > 0) setSelectedId((prev) => prev ?? rows[0].finding_id);
       })
-      .catch(() => {
-        setFiles(fallbackFiles);
-        if (fallbackFiles.length > 0) setSelectedId((prev) => prev ?? fallbackFiles[0].finding_id);
-      })
+      .catch(() => setFiles([]))
       .finally(() => setLoadingFiles(false));
-  }, [scanId, fallbackFiles]);
+  }, [scanId]);
 
   useEffect(() => {
     if (selectedId == null) {
       setDetail(null);
       return;
     }
-    const finding = findings.find((f) => f.id === selectedId);
     setLoadingDetail(true);
     api
       .findingFileTimeline(selectedId)
       .then(setDetail)
-      .catch(() => {
-        if (finding) setDetail(buildFileTimelineDetail(finding));
-        else setDetail(null);
-      })
+      .catch(() => setDetail(null))
       .finally(() => setLoadingDetail(false));
-  }, [selectedId, findings]);
+  }, [selectedId]);
 
   const filteredFiles = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return files;
-    return files.filter(
-      (f) =>
-        f.file_name.toLowerCase().includes(q) ||
-        f.original_path.toLowerCase().includes(q)
-    );
+    const list = !q
+      ? files
+      : files.filter(
+          (f) =>
+            f.file_name.toLowerCase().includes(q) ||
+            f.original_path.toLowerCase().includes(q)
+        );
+    return list;
   }, [files, query]);
+
+  useEffect(() => {
+    setPage(0);
+  }, [query, files.length]);
+
+  const pageCount = Math.max(1, Math.ceil(filteredFiles.length / PAGE));
+  const pagedFiles = filteredFiles.slice(page * PAGE, (page + 1) * PAGE);
 
   const events = useMemo(() => {
     if (!detail) return [];
@@ -396,7 +472,7 @@ function TimelineTab({
           onChange={(e) => setQuery(e.target.value)}
         />
         <div className="file-timeline-list">
-          {filteredFiles.map((f) => (
+          {pagedFiles.map((f) => (
             <button
               key={f.finding_id}
               type="button"
@@ -418,6 +494,23 @@ function TimelineTab({
             </button>
           ))}
         </div>
+        {pageCount > 1 && (
+          <div className="row-flex" style={{ marginTop: 8 }}>
+            <button className="btn secondary sm" disabled={page === 0} onClick={() => setPage((p) => p - 1)}>
+              ←
+            </button>
+            <span style={{ fontSize: 11, color: "var(--text-dim)" }}>
+              {page + 1}/{pageCount}
+            </span>
+            <button
+              className="btn secondary sm"
+              disabled={page >= pageCount - 1}
+              onClick={() => setPage((p) => p + 1)}
+            >
+              →
+            </button>
+          </div>
+        )}
       </aside>
 
       <section className="file-timeline-detail">

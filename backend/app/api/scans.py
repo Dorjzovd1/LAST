@@ -8,10 +8,12 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core import audit
+from app.core.events import hub
 from app.database import get_db
 from app.models import Device, Finding, FindingType, ScanJob, ScanStatus, Severity, TimelineEvent
-from app.schemas import ScanCreate, ScanOut, ScanSummaryOut, TimelineEventOut, FileTimelineSummaryOut
+from app.schemas import ScanCreate, ScanOut, ScanPurgeOut, ScanSummaryOut, TimelineEventOut, FileTimelineSummaryOut
 from app.services import file_timeline
+from app.services import scan_cleanup
 from app.services import scanner
 
 router = APIRouter(prefix="/api/scans", tags=["scans"])
@@ -67,34 +69,61 @@ def cancel_scan(scan_id: int, db: Session = Depends(get_db)) -> ScanJob:
     return job
 
 
+@router.post("/{scan_id}/purge", response_model=ScanPurgeOut, summary="Scan өгөгдөл, сэргээсэн файлыг устгах")
+def purge_scan_data(scan_id: int, db: Session = Depends(get_db)) -> ScanPurgeOut:
+    job = db.get(ScanJob, scan_id)
+    if job is None:
+        raise HTTPException(404, "Scan олдсонгүй")
+    if job.status in (ScanStatus.PENDING, ScanStatus.RUNNING):
+        raise HTTPException(409, "Scan ажиллаж байна. Дууссаны дараа устгана уу.")
+
+    device = db.get(Device, job.device_id)
+    case_id = device.case_id if device else None
+    stats = scan_cleanup.purge_scan(db, scan_id)
+    audit.record(db, action="scan_purged", target=str(scan_id), case_id=case_id, detail=stats)
+    hub.publish("scan_purged", {"scan_id": scan_id, **stats})
+    return ScanPurgeOut(scan_id=scan_id, **stats)
+
+
 @router.get("/{scan_id}/summary", response_model=ScanSummaryOut, summary="Scan тойм — нийт файл, эрсдэл, timeline")
 def scan_summary(scan_id: int, db: Session = Depends(get_db)) -> ScanSummaryOut:
     job = db.get(ScanJob, scan_id)
     if job is None:
         raise HTTPException(404, "Scan олдсонгүй")
 
-    findings = db.query(Finding).filter(Finding.scan_id == scan_id).all()
+    base = Finding.scan_id == scan_id
     timeline_n = db.query(func.count(TimelineEvent.id)).filter(TimelineEvent.scan_id == scan_id).scalar() or 0
 
     def count_type(ft: FindingType) -> int:
-        return sum(1 for f in findings if f.finding_type == ft)
+        return db.query(func.count(Finding.id)).filter(base, Finding.finding_type == ft).scalar() or 0
 
     def count_sev(sev: Severity) -> int:
-        return sum(1 for f in findings if f.severity == sev)
+        return db.query(func.count(Finding.id)).filter(base, Finding.severity == sev).scalar() or 0
 
-    deleted_types = {FindingType.DELETED_FILE, FindingType.CARVED_FILE}
+    deleted_types = (FindingType.DELETED_FILE, FindingType.CARVED_FILE)
+    deleted_files = (
+        db.query(func.count(Finding.id))
+        .filter(base, Finding.finding_type.in_(deleted_types))
+        .scalar()
+        or 0
+    )
+    total_files = db.query(func.count(Finding.id)).filter(base).scalar() or 0
+    recovered_files = (
+        db.query(func.count(Finding.id)).filter(base, Finding.recovered.is_(True)).scalar() or 0
+    )
+
     return ScanSummaryOut(
         scan_id=scan_id,
-        total_files=len(findings),
+        total_files=int(total_files),
         active_files=count_type(FindingType.ACTIVE_FILE),
-        deleted_files=sum(1 for f in findings if f.finding_type in deleted_types),
+        deleted_files=int(deleted_files),
         recycle_artifacts=count_type(FindingType.RECYCLE_ARTIFACT),
         carved_files=count_type(FindingType.CARVED_FILE),
         timeline_events=int(timeline_n),
         risk_high=count_sev(Severity.HIGH),
         risk_medium=count_sev(Severity.MEDIUM),
         risk_normal=count_sev(Severity.NORMAL),
-        recovered_files=sum(1 for f in findings if f.recovered),
+        recovered_files=int(recovered_files),
     )
 
 

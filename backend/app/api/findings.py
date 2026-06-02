@@ -10,28 +10,37 @@ from sqlalchemy.orm import Session
 from app.core import audit
 from app.database import get_db
 from app.models import Finding, FindingType, Severity, TimelineEvent
-from app.schemas import FindingOut, FileTimelineDetailOut
+from app.schemas import FindingOut, FileTimelineDetailOut, FindingsPageOut
 from app.services import recovery_quality
 from app.services import file_timeline
 from app.services.risk_assessment import assess_risk
 
 router = APIRouter(prefix="/api/findings", tags=["findings"])
 
+_DELETED_TYPES = (
+    FindingType.DELETED_FILE,
+    FindingType.CARVED_FILE,
+    FindingType.RECYCLE_ARTIFACT,
+    FindingType.SLACK_SPACE,
+)
 
-@router.get("", response_model=list[FindingOut], summary="Ул мөрүүдийг шүүж жагсаах")
-def list_findings(
-    scan_id: int | None = Query(None),
-    finding_type: FindingType | None = Query(None),
-    severity: Severity | None = Query(None),
-    recovered: bool | None = Query(None),
-    q: str | None = Query(None, description="Файлын нэр/замаар хайх"),
-    db: Session = Depends(get_db),
-) -> list[Finding]:
-    query = db.query(Finding)
+
+def _apply_finding_filters(
+    query,
+    *,
+    scan_id: int | None,
+    finding_type: FindingType | None,
+    deleted_only: bool | None,
+    severity: Severity | None,
+    recovered: bool | None,
+    q: str | None,
+):
     if scan_id is not None:
         query = query.filter(Finding.scan_id == scan_id)
     if finding_type is not None:
         query = query.filter(Finding.finding_type == finding_type)
+    elif deleted_only:
+        query = query.filter(Finding.finding_type.in_(_DELETED_TYPES))
     if severity is not None:
         query = query.filter(Finding.severity == severity)
     if recovered is not None:
@@ -39,7 +48,33 @@ def list_findings(
     if q:
         like = f"%{q}%"
         query = query.filter((Finding.file_name.ilike(like)) | (Finding.original_path.ilike(like)))
-    return query.order_by(Finding.id.asc()).all()
+    return query
+
+
+@router.get("", response_model=FindingsPageOut, summary="Ул мөрүүдийг шүүж жагсаах (pagination)")
+def list_findings(
+    scan_id: int | None = Query(None),
+    finding_type: FindingType | None = Query(None),
+    deleted_only: bool | None = Query(None, description="Зөвхөн устгагдсан/recycle/carving"),
+    severity: Severity | None = Query(None),
+    recovered: bool | None = Query(None),
+    q: str | None = Query(None, description="Файлын нэр/замаар хайх"),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+) -> FindingsPageOut:
+    query = _apply_finding_filters(
+        db.query(Finding),
+        scan_id=scan_id,
+        finding_type=finding_type,
+        deleted_only=deleted_only,
+        severity=severity,
+        recovered=recovered,
+        q=q,
+    )
+    total = query.count()
+    items = query.order_by(Finding.id.asc()).offset(offset).limit(limit).all()
+    return FindingsPageOut(items=items, total=total, limit=limit, offset=offset)
 
 
 @router.get("/{finding_id}", response_model=FindingOut)
