@@ -3,7 +3,7 @@ import { useParams } from "react-router-dom";
 import { api } from "../api/client";
 import type { Finding, Scan, TimelineEvent } from "../api/types";
 import { useEvents } from "../lib/events";
-import { formatBytes, formatDate, findingDisplayName, findingHasOriginalName, findingTypeLabel } from "../lib/format";
+import { formatBytes, formatDate, findingDisplayName, findingHasOriginalName, findingIsPermanentDelete, findingTypeLabel } from "../lib/format";
 
 type Tab = "findings" | "timeline";
 
@@ -213,6 +213,7 @@ function FindingsTab({
             {findings.map((f) => {
               const displayName = findingDisplayName(f.original_path, f.file_name);
               const named = findingHasOriginalName(f.meta);
+              const permanent = findingIsPermanentDelete(f.meta);
               return (
               <tr key={f.id}>
                 <td>
@@ -221,6 +222,7 @@ function FindingsTab({
                 <td>
                   <span className="type-label">{findingTypeLabel(f.finding_type)}</span>
                   {named && <span className="badge named">нэртэй</span>}
+                  {permanent && <span className="badge" style={{ background: "var(--orange)" }}>Shift+Del</span>}
                 </td>
                 <td>
                   <div className="file-name-cell">{displayName}</div>

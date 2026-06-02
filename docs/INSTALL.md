@@ -25,6 +25,7 @@ sudo ./scripts/install_ubuntu.sh
 | scalpel | `scalpel` | File carving |
 | ewf-tools | `ewfacquire`, `ewfverify` | E01 (EnCase) форматтай дүрс |
 | util-linux | `lsblk`, `blockdev` | Төхөөрөмж жагсаах, read-only хийх |
+| ntfs-3g / ntfsprogs | `ntfsundelete` | NTFS Shift+Delete (permanent) устгасан файл сэргээх |
 
 ## 2. Backend ажиллуулах
 

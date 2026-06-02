@@ -11,9 +11,9 @@ const SEVERITY_META: Record<string, { label: string; color: string }> = {
 
 const TYPE_LABEL: Record<string, string> = {
   active_file: "Идэвхтэй файл",
-  deleted_file: "Устгагдсан файл",
+  deleted_file: "Shift+Delete устгасан",
   carved_file: "Carved файл",
-  recycle_artifact: "Recycle artifact",
+  recycle_artifact: "Recycle Bin (Delete)",
   slack_space: "Slack space",
 };
 

@@ -32,11 +32,17 @@ export function findingHasOriginalName(meta: Record<string, unknown> | null | un
 
 const TYPE_LABELS: Record<string, string> = {
   active_file: "Идэвхтэй файл",
-  deleted_file: "Устгагдсан (нэртэй)",
+  deleted_file: "Устгагдсан (Shift+Delete)",
   carved_file: "Carving (нэргүй)",
-  recycle_artifact: "Recycle Bin (нэртэй)",
+  recycle_artifact: "Recycle Bin (энгийн Delete)",
   slack_space: "Slack space",
 };
+
+/** Shift+Delete (permanent) эсэхийг meta-аас шалгана. */
+export function findingIsPermanentDelete(meta: Record<string, unknown> | null | undefined): boolean {
+  if (!meta) return false;
+  return meta["delete_method"] === "permanent" || meta["recycle_bypass"] === true;
+}
 
 export function findingTypeLabel(t: string): string {
   return TYPE_LABELS[t] ?? t;

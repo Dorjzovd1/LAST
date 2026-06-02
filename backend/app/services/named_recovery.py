@@ -157,6 +157,21 @@ def scan_ext(source_path: str, dest_dir: str) -> list[NamedFile]:
     return results
 
 
+def recover_ntfs_inode(source_path: str, inode: str, dest_path: str) -> bool:
+    """NTFS inode-ийг ntfsundelete-ээр сэргээнэ (Shift+Delete / permanent delete).
+
+    icat амжилтгүй үед fallback болгон ашиглана.
+    """
+    if not tools.is_available("ntfsundelete"):
+        return False
+    Path(dest_path).parent.mkdir(parents=True, exist_ok=True)
+    result = tools.run(
+        ["ntfsundelete", "-f", "-u", "-i", inode, "-o", dest_path, source_path],
+        timeout=300,
+    )
+    return result.ok and os.path.exists(dest_path) and os.path.getsize(dest_path) > 0
+
+
 def scan_by_filesystem(source_path: str, fs_type: str, dest_dir: str) -> list[NamedFile]:
     """FS төрлөөс хамаарч нэртэй сэргээлтийн хэрэгслийг сонгоно."""
     fs = (fs_type or "").lower()

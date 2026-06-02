@@ -173,16 +173,15 @@ def _list_deleted_body(image_path: str, byte_offset: int) -> list[DeletedEntry]:
 def list_all_files(image_path: str, byte_offset: int = 0) -> list[DeletedEntry]:
     """Файлын системийн БҮХ файлыг (идэвхтэй болон устгагдсан) жагсаана.
 
-    `fls -r -m /` (`-d` туггүй) ашиглан allocated + deleted бүх бичлэгийг авч,
-    тус бүрийн MAC timestamp (modified/accessed/changed/born) болон замыг гаргана.
-    Энэ нь "хэзээ ямар үйлдэл хийсэн" timeline-ийн үндэс болно.
+    `fls -r -d -m /` ашиглана — `-d` нь Shift+Delete (Recycle Bin алгассан),
+    Ctrl+Shift+Delete зэрэг **байнгын устгалын** метадата-г илрүүлнэ.
     """
     if not tsk_available():
         if settings.allow_mock:
             return _mock_all_files(image_path)
         return []
 
-    args = ["fls", "-r", "-m", "/"]
+    args = ["fls", "-r", "-d", "-m", "/"]
     if byte_offset:
         args += ["-o", str(byte_offset // 512)]
     args.append(image_path)
@@ -197,15 +196,29 @@ def list_all_files(image_path: str, byte_offset: int = 0) -> list[DeletedEntry]:
         entry = _parse_body_line(line)
         if not entry or entry.file_type != "r":
             continue
-        # Нэг inode-д идэвхтэй болон устгагдсан хувилбар хоёулаа гарвал
-        # идэвхтэйг нь давуу үзнэ (илүү бүрэн мэдээлэлтэй).
+        if entry.deleted:
+            entry.meta = {**entry.meta, "delete_method": "permanent", "recycle_bypass": True}
         key = f"{entry.inode}:{entry.name}"
         existing = by_inode.get(key)
         if existing is None or (existing.deleted and not entry.deleted):
             by_inode[key] = entry
 
+    # Pretty формат (* = устгагдсан) — body-д алга болсон entry-г нэмнэ.
+    for entry in _list_deleted_pretty(image_path, byte_offset):
+        entry.deleted = True
+        entry.meta = {**entry.meta, "delete_method": "permanent", "recycle_bypass": True}
+        key = f"{entry.inode}:{entry.name}"
+        if key not in by_inode:
+            by_inode[key] = entry
+        elif len(entry.name) > len(by_inode[key].name):
+            by_inode[key] = entry
+
     entries = list(by_inode.values())
-    logger.info("TSK fls: нийт %d файл (offset=%d)", len(entries), byte_offset)
+    deleted_n = sum(1 for e in entries if e.deleted)
+    logger.info(
+        "TSK fls: нийт %d файл (%d устгагдсан/shift+delete, offset=%d)",
+        len(entries), deleted_n, byte_offset,
+    )
     return entries
 
 
@@ -402,7 +415,7 @@ def _mock_all_files(image_path: str) -> list[DeletedEntry]:
                 ctime=at(cday),
                 crtime=at(crday),
                 deleted=deleted,
-                meta={"mock": True},
+                meta={"mock": True, "delete_method": "permanent" if deleted else None, "recycle_bypass": deleted},
             )
         )
     return entries

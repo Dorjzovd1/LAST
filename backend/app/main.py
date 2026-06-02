@@ -39,6 +39,7 @@ REQUIRED_TOOLS = [
     "icat",
     "blkls",
     "tsk_recover",
+    "ntfsundelete",
     "photorec",
     "foremost",
     "scalpel",

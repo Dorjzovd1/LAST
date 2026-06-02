@@ -75,23 +75,23 @@ def run_scan(scan_id: int) -> None:
 
         total_findings = 0
 
-        # 1) Бүх файл (TSK fls — идэвхтэй + устгагдсан, MAC цагтай) -----------
-        _progress(db, job, 15, "Бүх файлын жагсаалт (TSK — MAC цаг)")
+        # 1) Бүх файл (TSK fls -d — идэвхтэй + Shift+Delete устгагдсан) ------
+        _progress(db, job, 15, "Бүх файл + Shift+Delete устгагдсан (TSK -d)")
         for off in byte_offsets:
             for entry in tsk.list_all_files(source_path, off):
                 f = _finding_from_entry(job.id, entry)
                 if entry.deleted:
-                    _maybe_recover(source_path, off, entry, f, options)
+                    _maybe_recover(source_path, off, entry, f, options, device)
                 _finalize_finding(db, f)
                 total_findings += 1
 
-        # 2) FS-т тохирсон нэртэй сэргээлт (ntfsundelete / extundelete) ------
+        # 2) FS-т тохирсон нэртэй сэргээлт (ntfsundelete — Shift+Delete NTFS) ---
         if options.get("run_named_tools", True) and device:
             fs = device.fs_type or ""
             part = named_recovery.resolve_partition_path(
                 device.dev_path, fs, device.details or {}
             )
-            _progress(db, job, 40, f"Нэртэй сэргээлт ({fs or 'auto'})")
+            _progress(db, job, 40, f"NTFS permanent delete сэргээлт ({fs or 'auto'})")
             total_findings += _run_named_recovery(db, job, part, fs)
 
         # 3) Carving (signature — нэргүй, зөвхөн run_carving=true үед) -------
@@ -203,7 +203,14 @@ def _finding_from_entry(scan_id: int, entry: tsk.DeletedEntry) -> Finding:
     )
 
 
-def _maybe_recover(source_path, byte_offset, entry, finding: Finding, options: dict) -> None:
+def _maybe_recover(
+    source_path,
+    byte_offset,
+    entry,
+    finding: Finding,
+    options: dict,
+    device: Device | None = None,
+) -> None:
     if not options.get("recover_files", True) or entry.file_type != "r":
         return
     max_bytes = int(options.get("max_recover_size_mb", 512)) * 1024 * 1024
@@ -215,6 +222,21 @@ def _maybe_recover(source_path, byte_offset, entry, finding: Finding, options: d
     if ok and os.path.exists(dest):
         finding.recovered = True
         finding.recovered_path = str(dest)
+        finding.meta = {**finding.meta, "recovery_tool": "icat"}
+        return
+
+    # Shift+Delete NTFS: icat амжилтгүй бол ntfsundelete fallback.
+    fs = (device.fs_type or "").lower() if device else ""
+    if fs in ("ntfs", "exfat") and entry.inode:
+        part = source_path
+        if device:
+            part = named_recovery.resolve_partition_path(
+                device.dev_path, fs, device.details or {}
+            )
+        if named_recovery.recover_ntfs_inode(part, entry.inode, str(dest)):
+            finding.recovered = True
+            finding.recovered_path = str(dest)
+            finding.meta = {**finding.meta, "recovery_tool": "ntfsundelete"}
 
 
 def _apply_risk(finding: Finding) -> None:
@@ -272,7 +294,11 @@ def _run_named_recovery(db, job: ScanJob, source_path: str, fs_type: str) -> int
             recovered=bool(nf.recovered_path and os.path.exists(nf.recovered_path)),
             recovered_path=nf.recovered_path,
             source_tool=nf.source_tool,
-            meta=nf.meta,
+            meta={
+                **nf.meta,
+                "delete_method": "permanent",
+                "recycle_bypass": True,
+            },
         )
         if finding.recovered and finding.recovered_path:
             try:
