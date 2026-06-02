@@ -18,7 +18,6 @@ User=root
 WorkingDirectory=/opt/rea/backend
 Environment="REA_DATABASE_URL=sqlite:////opt/rea/data/rea.db"
 Environment="REA_DATA_DIR=/opt/rea/data"
-Environment="REA_IMAGE_DIR=/opt/rea/data/images"
 Environment="REA_RECOVERED_DIR=/opt/rea/data/recovered"
 Environment="REA_EXPORT_DIR=/opt/rea/data/exports"
 Environment="REA_ALLOW_MOCK=0"

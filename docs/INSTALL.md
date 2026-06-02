@@ -38,15 +38,12 @@ pip install -r requirements.txt
 cp .env.example .env   # шаардлагатай бол засна
 
 # Хөгжүүлэлтийн серверийг асаах
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+# Анхаар: blockdev/mount зэрэг device үйлдэл root эрх шаардана!
+sudo $(which uvicorn) app.main:app --host 0.0.0.0 --port 8000
 ```
 
-Backend асаалаа гэдгийг шалгах:
-
-```bash
-curl http://localhost:8000/api/health
-# {"status":"ok", ...}
-```
+`curl http://localhost:8000/api/health` хариунд `"running_as_root": true` байх ёстой.
+Хэрэв `false` бол дээрх командыг **sudo**-оор ажиллуулна уу.
 
 API баримтжуулалт: <http://localhost:8000/docs>
 

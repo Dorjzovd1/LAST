@@ -15,6 +15,7 @@ from app.config import get_settings
 from app.core.events import hub
 from app.database import init_db
 from app.services import device as device_svc
+from app.services import writeblock
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("rea.main")
@@ -76,6 +77,8 @@ def health() -> dict:
     """Системийн төлөв ба forensic хэрэгслүүдийн бэлэн байдал."""
     tools = {name: settings.tool_available(name) for name in REQUIRED_TOOLS}
     all_ready = all(tools.values())
+    is_linux = platform.system() == "Linux"
+    as_root = writeblock.running_as_root() if is_linux else None
     return {
         "status": "ok",
         "version": __version__,
@@ -83,6 +86,8 @@ def health() -> dict:
         "mock_mode": (not all_ready) and settings.allow_mock,
         "tools": tools,
         "tools_ready": all_ready,
+        "running_as_root": as_root,
+        "device_access_ok": (not is_linux) or as_root or settings.allow_mock,
     }
 
 

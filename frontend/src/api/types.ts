@@ -104,6 +104,8 @@ export interface HealthInfo {
   mock_mode: boolean;
   tools: Record<string, boolean>;
   tools_ready: boolean;
+  running_as_root?: boolean | null;
+  device_access_ok?: boolean;
 }
 
 export interface RealtimeEvent {
