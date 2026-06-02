@@ -75,8 +75,8 @@ def run_scan(scan_id: int) -> None:
 
         total_findings = 0
 
-        # 1a) Идэвхтэй файлууд — mount walk (бүх файл) + TSK fallback ------------
-        _progress(db, job, 10, "Идэвхтэй файлууд (mount walk — бүх файл)")
+        # 1a) Идэвхтэй файлууд — mount walk + TSK (нийт файлын каталог) -----------
+        _progress(db, job, 10, "Нийт файл — идэвхтэй (mount + TSK)")
         total_findings += _run_active_inventory(db, job, mount_point, source_path, byte_offsets)
 
         # 1b) Устгагдсан файлууд — TSK + Shift+Delete сэргээлт -----------------
@@ -113,8 +113,8 @@ def run_scan(scan_id: int) -> None:
             _progress(db, job, 75, "Recycle/Trash (анхны замтай)")
             total_findings += _run_recycle(db, job, mount_point)
 
-        # 5) Timeline --------------------------------------------------------
-        _progress(db, job, 90, "Timeline үүсгэж байна")
+        # 5) Timeline (бүх файлын MAC activity) --------------------------------
+        _progress(db, job, 90, "Activity timeline (MAC — бүх файл)")
         _build_timeline(db, job)
 
         if mount_point:
@@ -321,19 +321,19 @@ def _run_active_inventory(
             if len(batch) >= batch_size:
                 count += _flush_findings(db, batch)
 
-    if count == 0 and not seen:
-        for off in byte_offsets:
-            for entry in tsk.list_active_files(source_path, off):
-                key = entry.name.lower()
-                if key in seen:
-                    continue
-                seen.add(key)
-                f = _finding_from_entry(job.id, entry)
-                f.finding_type = FindingType.ACTIVE_FILE
-                _prepare_finding(f, hash_content=False)
-                batch.append(f)
-                if len(batch) >= batch_size:
-                    count += _flush_findings(db, batch)
+    # Mount + TSK хоёул — идэвхтэй файлыг бүрэн каталоглох.
+    for off in byte_offsets:
+        for entry in tsk.list_active_files(source_path, off):
+            key = (entry.name or "").replace("\\", "/").lower()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            f = _finding_from_entry(job.id, entry)
+            f.finding_type = FindingType.ACTIVE_FILE
+            _prepare_finding(f, hash_content=False)
+            batch.append(f)
+            if len(batch) >= batch_size:
+                count += _flush_findings(db, batch)
 
     count += _flush_findings(db, batch)
     logger.info("[scan %s] идэвхтэй файл: %d", job.id, count)

@@ -118,6 +118,22 @@ class TimelineEventOut(ORMModel):
     description: str
 
 
+class ScanSummaryOut(BaseModel):
+    """Scan-ийн нийт файл, эрсдэл, timeline тойм."""
+
+    scan_id: int
+    total_files: int
+    active_files: int
+    deleted_files: int
+    recycle_artifacts: int
+    carved_files: int
+    timeline_events: int
+    risk_high: int
+    risk_medium: int
+    risk_normal: int
+    recovered_files: int
+
+
 class AuditLogOut(ORMModel):
     id: int
     case_id: int | None

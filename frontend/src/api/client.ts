@@ -8,6 +8,7 @@ import type {
   Overview,
   Scan,
   ScanOptions,
+  ScanSummary,
   TimelineEvent,
 } from "./types";
 
@@ -58,6 +59,7 @@ export const api = {
   getScan: (id: number) => http<Scan>(`/scans/${id}`),
   cancelScan: (id: number) => http<Scan>(`/scans/${id}/cancel`, { method: "POST" }),
   scanTimeline: (id: number) => http<TimelineEvent[]>(`/scans/${id}/timeline`),
+  scanSummary: (id: number) => http<ScanSummary>(`/scans/${id}/summary`),
 
   // Findings
   listFindings: (params: Record<string, string | number | boolean | undefined>) => {

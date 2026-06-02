@@ -1,15 +1,16 @@
-"""Scan API — Deleted File Detection scan эхлүүлэх, төлөв хянах."""
+"""Scan API — бүх файлын шинжилгээ (идэвхтэй + устгагдсан), timeline, эрсдэл."""
 from __future__ import annotations
 
 import threading
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core import audit
 from app.database import get_db
-from app.models import Device, ScanJob, ScanStatus, TimelineEvent
-from app.schemas import ScanCreate, ScanOut, TimelineEventOut
+from app.models import Device, Finding, FindingType, ScanJob, ScanStatus, Severity, TimelineEvent
+from app.schemas import ScanCreate, ScanOut, ScanSummaryOut, TimelineEventOut
 from app.services import scanner
 
 router = APIRouter(prefix="/api/scans", tags=["scans"])
@@ -23,7 +24,6 @@ def list_scans(db: Session = Depends(get_db)) -> list[ScanJob]:
 @router.post("", response_model=ScanOut, status_code=201, summary="Шинэ scan эхлүүлэх")
 def create_scan(
     payload: ScanCreate,
-    background: BackgroundTasks,
     db: Session = Depends(get_db),
 ) -> ScanJob:
     device = db.get(Device, payload.device_id)
@@ -64,6 +64,37 @@ def cancel_scan(scan_id: int, db: Session = Depends(get_db)) -> ScanJob:
         db.commit()
         db.refresh(job)
     return job
+
+
+@router.get("/{scan_id}/summary", response_model=ScanSummaryOut, summary="Scan тойм — нийт файл, эрсдэл, timeline")
+def scan_summary(scan_id: int, db: Session = Depends(get_db)) -> ScanSummaryOut:
+    job = db.get(ScanJob, scan_id)
+    if job is None:
+        raise HTTPException(404, "Scan олдсонгүй")
+
+    findings = db.query(Finding).filter(Finding.scan_id == scan_id).all()
+    timeline_n = db.query(func.count(TimelineEvent.id)).filter(TimelineEvent.scan_id == scan_id).scalar() or 0
+
+    def count_type(ft: FindingType) -> int:
+        return sum(1 for f in findings if f.finding_type == ft)
+
+    def count_sev(sev: Severity) -> int:
+        return sum(1 for f in findings if f.severity == sev)
+
+    deleted_types = {FindingType.DELETED_FILE, FindingType.CARVED_FILE}
+    return ScanSummaryOut(
+        scan_id=scan_id,
+        total_files=len(findings),
+        active_files=count_type(FindingType.ACTIVE_FILE),
+        deleted_files=sum(1 for f in findings if f.finding_type in deleted_types),
+        recycle_artifacts=count_type(FindingType.RECYCLE_ARTIFACT),
+        carved_files=count_type(FindingType.CARVED_FILE),
+        timeline_events=int(timeline_n),
+        risk_high=count_sev(Severity.HIGH),
+        risk_medium=count_sev(Severity.MEDIUM),
+        risk_normal=count_sev(Severity.NORMAL),
+        recovered_files=sum(1 for f in findings if f.recovered),
+    )
 
 
 @router.get("/{scan_id}/timeline", response_model=list[TimelineEventOut])

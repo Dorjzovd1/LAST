@@ -72,6 +72,11 @@ def test_full_pipeline(client):
     timeline = client.get(f"/api/scans/{scan['id']}/timeline").json()
     assert len(timeline) > 0
 
+    summary = client.get(f"/api/scans/{scan['id']}/summary").json()
+    assert summary["total_files"] == len(findings)
+    assert summary["active_files"] >= 1
+    assert summary["timeline_events"] >= 1
+
     # 8. Тайлан (HTML / JSON / PDF)
     html = client.get(f"/api/reports/scan/{scan['id']}/html")
     assert html.status_code == 200

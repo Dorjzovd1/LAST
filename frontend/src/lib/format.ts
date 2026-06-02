@@ -55,3 +55,16 @@ export function findingIsDownloadable(f: { recovered: boolean; size_bytes: numbe
 export function findingTypeLabel(t: string): string {
   return TYPE_LABELS[t] ?? t;
 }
+
+const ACTIVE_TYPES = new Set(["active_file"]);
+
+export function findingIsActive(findingType: string): boolean {
+  return ACTIVE_TYPES.has(findingType);
+}
+
+export function findingFileStatusLabel(findingType: string): string {
+  if findingIsActive(findingType)) return "Идэвхтэй";
+  if (findingType === "recycle_artifact") return "Recycle Bin";
+  if (findingType === "carved_file") return "Carved";
+  return "Устгагдсан";
+}

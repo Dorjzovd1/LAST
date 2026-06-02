@@ -201,6 +201,10 @@ tr:hover td { background: var(--bg-panel-2); }
 .type-chip b { color: var(--accent); margin-left: 4px; }
 
 .badge.named { background: rgba(63,185,80,.15); color: var(--green); font-size: 10px; margin-left: 6px; }
+.badge.status-active { background: rgba(63,185,80,.2); color: var(--green); font-size: 10px; }
+.badge.status-deleted { background: rgba(219,138,23,.2); color: var(--orange); font-size: 10px; }
+.stat.highlight-stat .num { color: var(--accent); }
+.table-scroll { overflow-x: auto; max-width: 100%; }
 .file-name-cell { font-weight: 600; font-size: 14px; }
 .path-cell { font-size: 11px; color: var(--text-dim); max-width: 280px; word-break: break-all; }
 .type-label { font-size: 12px; }

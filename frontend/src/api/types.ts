@@ -78,6 +78,20 @@ export interface Finding {
   created_at: string;
 }
 
+export interface ScanSummary {
+  scan_id: number;
+  total_files: number;
+  active_files: number;
+  deleted_files: number;
+  recycle_artifacts: number;
+  carved_files: number;
+  timeline_events: number;
+  risk_high: number;
+  risk_medium: number;
+  risk_normal: number;
+  recovered_files: number;
+}
+
 export interface TimelineEvent {
   id: number;
   scan_id: number;
