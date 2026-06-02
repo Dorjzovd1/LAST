@@ -161,6 +161,12 @@ export default function ScanView() {
         <div style={{ color: "var(--text-dim)", fontSize: 12 }}>
           {scan.progress.toFixed(0)}% · {scan.current_step || "—"}
         </div>
+        {scan.status === "completed" && counts.active === 0 && counts.deleted > 0 && (
+          <div className="warn-banner" style={{ marginTop: 12 }}>
+            Flash дээрх <b>идэвхтэй файл олдсонгүй</b> — зөвхөн устгагдсан харагдаж байна.
+            Backend-ийг <code>sudo uvicorn</code>-оор ажиллуулж, <code>ntfs-3g</code> суулгаад шинэ scan хийнэ үү.
+          </div>
+        )}
         {scan.error && <div style={{ color: "var(--red)", marginTop: 8 }}>{scan.error}</div>}
 
         <div className="stat-row" style={{ marginTop: 16 }}>
@@ -211,7 +217,7 @@ export default function ScanView() {
           <FileInventoryPanel
             findings={allFindings}
             title="Нийт файлын metadata"
-            subtitle="Идэвхтэй (ашиглагдаж байгаа) болон устгагдсан бүх файл — MAC цаг, MIME, эрсдэл."
+            subtitle="Flash/USB дээр байгаа бүх файл — идэвхтэй (pptx, docx…) + устгагдсан. Explorer-т харагдах файлууд энд."
           />
         )}
         {tab === "active" && (

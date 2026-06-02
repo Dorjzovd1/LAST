@@ -86,10 +86,28 @@ def is_read_only(dev_path: str) -> bool:
     return result.stdout.strip() == "1"
 
 
-def mount_read_only(dev_path: str, mount_point: str | None = None) -> str:
+def detect_fstype(dev_path: str) -> str:
+    """blkid-ээр файлын системийн төрлийг тодорхойлно (ntfs, vfat, exfat…)."""
+    if not IS_LINUX or not tools.is_available("blkid"):
+        return ""
+    result = tools.run(["blkid", "-o", "value", "-s", "TYPE", dev_path])
+    if result.ok and result.stdout.strip():
+        return result.stdout.strip().lower()
+    return ""
+
+
+def _mount_attempt(dev_path: str, mount_point: str, opts: str, fstype: str | None = None) -> bool:
+    args = ["mount"]
+    if fstype:
+        args += ["-t", fstype]
+    args += ["-o", opts, dev_path, mount_point]
+    return tools.run(args).ok
+
+
+def mount_read_only(dev_path: str, mount_point: str | None = None, *, fs_type: str = "") -> str:
     """Төхөөрөмжийг зөвхөн унших горимоор mount хийж, mount цэгийг буцаана.
 
-    `ro,noexec,nodev,noload` тугуудаар бичилт болон journal replay-ээс сэргийлнэ.
+    USB flash (NTFS/exFAT/FAT32) дээр `-t ntfs-3g` / `exfat` / `vfat` ашиглана.
     """
     if mount_point is None:
         mount_point = tempfile.mkdtemp(prefix="rea_ro_")
@@ -106,15 +124,28 @@ def mount_read_only(dev_path: str, mount_point: str | None = None) -> str:
             "sudo uvicorn app.main:app --host 0.0.0.0 --port 8000"
         )
 
-    # noload нь ext journal-ийн replay-ийг (бичилт) хориглоно.
-    opts = "ro,noexec,nodev,noload"
-    result = tools.run(["mount", "-o", opts, dev_path, mount_point])
-    if not result.ok:
-        # noload зарим FS дээр дэмжигдэхгүй тул дахин оролдоно.
-        result = tools.run(["mount", "-o", "ro,noexec,nodev", dev_path, mount_point])
-        if not result.ok:
-            _fail("mount", dev_path, result.stderr)
-    return mount_point
+    fs = (fs_type or detect_fstype(dev_path)).lower()
+    opts_list = ["ro,noexec,nodev,noload", "ro,noexec,nodev"]
+
+    # FS төрлөөр mount оролдлого — Windows USB ихэнхдээ NTFS/exFAT.
+    fstype_candidates: list[str | None] = []
+    if fs in ("ntfs",):
+        fstype_candidates = ["ntfs-3g", "ntfs", None]
+    elif fs in ("exfat",):
+        fstype_candidates = ["exfat", None]
+    elif fs in ("vfat", "fat", "fat32", "msdos"):
+        fstype_candidates = ["vfat", None]
+    else:
+        fstype_candidates = ["ntfs-3g", "exfat", "vfat", None]
+
+    for opts in opts_list:
+        for fstype in fstype_candidates:
+            if _mount_attempt(dev_path, mount_point, opts, fstype):
+                logger.info("Mount OK: %s -> %s (type=%s, opts=%s)", dev_path, mount_point, fstype or "auto", opts)
+                return mount_point
+
+    _fail("mount", dev_path, f"FS={fs or 'unknown'} — ntfs-3g/exfat-utils суулгасан эсэхийг шалгана уу")
+    return mount_point  # unreachable
 
 
 def unmount(mount_point: str) -> None:

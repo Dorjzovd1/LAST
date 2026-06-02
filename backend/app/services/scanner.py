@@ -75,8 +75,8 @@ def run_scan(scan_id: int) -> None:
 
         total_findings = 0
 
-        # 1a) Идэвхтэй файлууд — mount walk + TSK (нийт файлын каталог) -----------
-        _progress(db, job, 10, "Нийт файл — идэвхтэй (mount + TSK)")
+        # 1a) Flash/USB идэвхтэй файлууд — mount walk (бүх файл) + TSK -----------
+        _progress(db, job, 10, "Flash дээрх бүх идэвхтэй файл (mount walk)")
         total_findings += _run_active_inventory(db, job, mount_point, source_path, byte_offsets)
 
         # 1b) Устгагдсан файлууд — TSK + Shift+Delete сэргээлт -----------------
@@ -168,14 +168,25 @@ def _prepare_source(db, job: ScanJob, device: Device, options: dict):
     partitions = tsk.list_partitions(source_path)
     byte_offsets = [p.byte_offset for p in partitions] or [0]
 
-    # Read-only mount — идэвхтэй файлын каталог + Recycle artifact.
+    # Read-only mount — flash/USB дээрх БҮХ идэвхтэй файл (Documents/*.pptx г.м.)
+    mount_point: str | None = None
     if device:
-        try:
-            mount_point = writeblock.mount_read_only(source_path)
-            logger.info("Read-only mount: %s -> %s", source_path, mount_point)
-        except Exception as exc:  # noqa: BLE001
-            logger.info("Read-only mount амжилтгүй: %s", exc)
-            mount_point = None
+        fs = (device.fs_type or writeblock.detect_fstype(source_path) or "").lower()
+        mount_targets = [source_path]
+        if device.dev_path and device.dev_path not in mount_targets:
+            mount_targets.append(device.dev_path)
+        for target in mount_targets:
+            try:
+                mount_point = writeblock.mount_read_only(target, fs_type=fs)
+                logger.info("Flash mount OK: %s -> %s (fs=%s)", target, mount_point, fs or "auto")
+                break
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Mount амжилтгүй (%s): %s", target, exc)
+        if mount_point is None:
+            logger.warning(
+                "Flash идэвхтэй файл mount-оор уншигдахгүй — TSK fallback. "
+                "sudo backend + ntfs-3g/exfat-utils шалгана уу."
+            )
 
     return source_path, byte_offsets, mount_point
 
@@ -201,6 +212,8 @@ def _finding_from_live_entry(scan_id: int, entry: active_files.LiveFileEntry) ->
             "has_original_name": True,
             "deleted": False,
             "module": "active_file_inventory",
+            "content_path": entry.content_path,
+            "on_device": True,
         },
     )
 
@@ -280,6 +293,12 @@ def _prepare_finding(finding: Finding, *, hash_content: bool = False) -> None:
         except OSError:
             pass
         finding.mime_type = metadata.guess_mime(finding.recovered_path, finding.file_name)
+    elif finding.finding_type == FindingType.ACTIVE_FILE:
+        content = (finding.meta or {}).get("content_path") or ""
+        if content and os.path.isfile(str(content)):
+            finding.mime_type = metadata.guess_mime(str(content), finding.file_name)
+        else:
+            finding.mime_type = metadata.guess_mime("", finding.file_name)
     else:
         finding.mime_type = metadata.guess_mime("", finding.file_name)
     _apply_risk(finding)

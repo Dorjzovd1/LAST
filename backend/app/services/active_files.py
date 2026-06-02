@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from app.config import get_settings
+from app.services import metadata
 
 logger = logging.getLogger("rea.active_files")
 settings = get_settings()
@@ -96,7 +97,12 @@ def scan_mount(mount_root: str | None, *, max_files: int = 200_000) -> list[Live
                     ctime=_ts_from_stat(st, "st_ctime"),
                     crtime=_ts_from_stat(st, "st_birthtime") if hasattr(st, "st_birthtime") else _ts_from_stat(st, "st_ctime"),
                     content_path=full,
-                    meta={"module": "active_file_inventory", "scan_method": "mount_walk"},
+                    meta={
+                        "module": "active_file_inventory",
+                        "scan_method": "mount_walk",
+                        "mime_guess": metadata.guess_mime(full, fn),
+                        "on_device": True,
+                    },
                 )
             )
 
@@ -112,13 +118,12 @@ def scan_mount(mount_root: str | None, *, max_files: int = 200_000) -> list[Live
 def _mock_live_files() -> list[LiveFileEntry]:
     now = datetime.now(timezone.utc)
     samples = [
-        ("/Documents/report_Q3.docx", 48213),
-        ("/Documents/budget_2024.xlsx", 91230),
+        ("/Documents/1.pptx", 276000),
+        ("/Documents/Dorjzovd.docx", 146000),
+        ("/Documents/FINALFINAL.xlsx", 16000),
+        ("/Documents/Asuulga.png", 12000),
         ("/Pictures/photo_2021.jpg", 2483920),
-        ("/Downloads/setup_installer.exe", 18234112),
-        ("/Music/track01.mp3", 5821022),
         ("/readme.txt", 2048),
-        ("/data/export.csv", 65536),
     ]
     return [
         LiveFileEntry(
