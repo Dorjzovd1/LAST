@@ -167,7 +167,7 @@ function RegisteredDevices({
         run_carving: false,
         run_recycle: true,
         run_named_tools: true,
-        max_recover_size_mb: 512,
+        max_recover_size_mb: 1024,
       });
       navigate(`/scans/${scan.id}`);
     } catch (e) {

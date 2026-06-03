@@ -252,6 +252,6 @@ def render_html(data: dict) -> str:
   </table>
 
   <hr>
-  <p style="color:#888;font-size:12px;">Зөөврийн мэдээлэл тээгч төхөөрөмжийн тоон ул мөр илрүүлэх систем — автomat forensic тайлан.</p>
+  <p style="color:#888;font-size:12px;">Зөөврийн мэдээлэл тээгч төхөөрөмжийн тоон ул мөр илрүүлэх хэрэгсэл — автomat forensic тайлан.</p>
 </body>
 </html>"""

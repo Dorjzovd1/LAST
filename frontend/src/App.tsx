@@ -50,7 +50,7 @@ export default function App() {
           </div>
           <p className="app-brand-title">
             Зөөврийн мэдээлэл тээгч төхөөрөмжийн{" "}
-            <span>тоон ул мөр илрүүлэх систем</span>
+            <span>тоон ул мөр илрүүлэх хэрэгсэл</span>
           </p>
         </div>
         <SidebarNav />

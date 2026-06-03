@@ -258,11 +258,11 @@ def _maybe_recover(
 ) -> None:
     if not options.get("recover_files", True) or entry.file_type != "r":
         return
-    max_count = int(options.get("max_recover_count", 100))
-    if recover_state is not None and recover_state.get("count", 0) >= max_count:
+    max_count = int(options.get("max_recover_count", 0))
+    if max_count > 0 and recover_state is not None and recover_state.get("count", 0) >= max_count:
         finding.meta = {**(finding.meta or {}), "skipped": "recover_limit"}
         return
-    max_bytes = int(options.get("max_recover_size_mb", 512)) * 1024 * 1024
+    max_bytes = int(options.get("max_recover_size_mb", 1024)) * 1024 * 1024
     if entry.size and entry.size > max_bytes:
         finding.meta = {**finding.meta, "skipped": "size_limit"}
         return
@@ -385,7 +385,7 @@ def _run_deleted_inventory(
     options: dict,
     device: Device | None,
 ) -> int:
-    """Устгагдсан файлуудыг batch-ээр бүртгэнэ; сэргээлт тоогоор хязгаарлана."""
+    """Устгагдсан файлуудыг batch-ээр бүртгэнэ; сэргээлтийг бүрэн хийнэ."""
     count = 0
     batch: list[Finding] = []
     batch_size = 1000
@@ -454,13 +454,13 @@ def _finalize_finding(db, finding: Finding) -> None:
 def _run_named_recovery(db, job: ScanJob, source_path: str, fs_type: str, options: dict) -> int:
     """ntfsundelete / extundelete — анхны файлын нэр, замтай сэргээлт."""
     dest = settings.recovered_dir / f"scan_{job.id}" / "named"
-    max_bytes = int(options.get("max_recover_size_mb", 512)) * 1024 * 1024
+    max_bytes = int(options.get("max_recover_size_mb", 1024)) * 1024 * 1024
     named_files = named_recovery.scan_by_filesystem(
         source_path,
         fs_type,
         str(dest),
         recover=bool(options.get("recover_files", True)),
-        max_recover=int(options.get("max_recover_count", 100)),
+        max_recover=int(options.get("max_recover_count", 0)),
         max_bytes=max_bytes,
     )
     existing = db.query(Finding).filter(Finding.scan_id == job.id).all()

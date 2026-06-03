@@ -63,10 +63,10 @@ def scan_ntfs(
     dest_dir: str,
     *,
     recover: bool = True,
-    max_recover: int = 100,
-    max_bytes: int = 512 * 1024 * 1024,
+    max_recover: int = 0,
+    max_bytes: int = 1024 * 1024 * 1024,
 ) -> list[NamedFile]:
-    """`ntfsundelete -l` жагсаалтаас устгагдсан файлуудыг metadata (+ сонголтоор сэргээлт)."""
+    """`ntfsundelete -l` жагсаалтаас устгагдсан файлуудыг нэртэй нь сэргээнэ (max_recover=0 → хязгааргүй)."""
     if not tools.is_available("ntfsundelete"):
         logger.info("ntfsundelete байхгүй — алгасав.")
         return []
@@ -111,13 +111,14 @@ def scan_ntfs(
             except ValueError:
                 deleted_time = None
 
-        mac: dict[str, datetime | None] = {}
-        if deleted_time:
+        mac = tsk.get_inode_timestamps(source_path, inode, 0)
+        if deleted_time and not mac.get("ctime"):
             mac["ctime"] = deleted_time
         safe = re.sub(r"[^\w.\-]", "_", _basename(name))[:120]
         out = Path(dest_dir) / f"{inode}_{safe}"
         recovered = ""
-        if recover and recovered_n < max_recover and (not size or size <= max_bytes):
+        unlimited = max_recover <= 0
+        if recover and (unlimited or recovered_n < max_recover) and (not size or size <= max_bytes):
             rec = tools.run(
                 ["ntfsundelete", "-f", "-u", "-i", inode, "-o", str(out), source_path],
                 timeout=300,
@@ -136,11 +137,6 @@ def scan_ntfs(
                         pass
             if not rec.ok and not recovered:
                 logger.debug("ntfsundelete inode %s алдаа: %s", inode, rec.stderr.strip())
-            if recovered and not mac.get("mtime"):
-                ts = tsk.get_inode_timestamps(source_path, inode, 0)
-                for key, val in ts.items():
-                    if val and not mac.get(key):
-                        mac[key] = val
 
         results.append(
             NamedFile(
@@ -246,8 +242,8 @@ def scan_by_filesystem(
     dest_dir: str,
     *,
     recover: bool = True,
-    max_recover: int = 100,
-    max_bytes: int = 512 * 1024 * 1024,
+    max_recover: int = 0,
+    max_bytes: int = 1024 * 1024 * 1024,
 ) -> list[NamedFile]:
     """FS төрлөөс хамаарч нэртэй сэргээлтийн хэрэгслийг сонгоно."""
     fs = (fs_type or "").lower()
