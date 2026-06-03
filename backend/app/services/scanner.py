@@ -27,6 +27,7 @@ from app.models import (
     FindingType,
     ScanJob,
     ScanStatus,
+    TimelineEvent,
 )
 from app.services import active_files, carving, metadata, named_recovery, recovery_quality, recycle, tsk, writeblock
 from app.services.hashing import hash_file
@@ -79,20 +80,9 @@ def run_scan(scan_id: int) -> None:
         _progress(db, job, 10, "Flash дээрх бүх идэвхтэй файл (mount walk)")
         total_findings += _run_active_inventory(db, job, mount_point, source_path, byte_offsets)
 
-        # 1b) Устгагдсан файлууд — TSK + Shift+Delete сэргээлт -----------------
-        _progress(db, job, 28, "Устгагдсан файлууд (TSK + Shift+Delete)")
-        for off in byte_offsets:
-            for entry in tsk.list_deleted(source_path, off):
-                path = entry.name.replace("\\", "/")
-                file_name = os.path.basename(path.rstrip("/")) or entry.name
-                if recovery_quality.is_junk_recovery_name(file_name, path):
-                    continue
-                f = _finding_from_entry(job.id, entry)
-                f.finding_type = FindingType.DELETED_FILE
-                entry.deleted = True
-                _maybe_recover(source_path, off, entry, f, options, device)
-                _finalize_finding(db, f)
-                total_findings += 1
+        # 1b) Устгагдсан файлууд — TSK metadata (+ хязгаартай сэргээлт) ------------
+        _progress(db, job, 28, "Устгагдсан файлууд (TSK metadata)")
+        total_findings += _run_deleted_inventory(db, job, source_path, byte_offsets, options, device)
 
         # 2) FS-т тохирсон нэртэй сэргээлт (ntfsundelete — Shift+Delete NTFS) ---
         if options.get("run_named_tools", True) and device:
@@ -101,7 +91,7 @@ def run_scan(scan_id: int) -> None:
                 device.dev_path, fs, device.details or {}
             )
             _progress(db, job, 40, f"NTFS permanent delete сэргээлт ({fs or 'auto'})")
-            total_findings += _run_named_recovery(db, job, part, fs)
+            total_findings += _run_named_recovery(db, job, part, fs, options)
 
         # 3) Carving (signature — нэргүй, зөвхөн run_carving=true үед) -------
         if options.get("run_carving", False):
@@ -264,8 +254,13 @@ def _maybe_recover(
     finding: Finding,
     options: dict,
     device: Device | None = None,
+    recover_state: dict | None = None,
 ) -> None:
     if not options.get("recover_files", True) or entry.file_type != "r":
+        return
+    max_count = int(options.get("max_recover_count", 100))
+    if recover_state is not None and recover_state.get("count", 0) >= max_count:
+        finding.meta = {**(finding.meta or {}), "skipped": "recover_limit"}
         return
     max_bytes = int(options.get("max_recover_size_mb", 512)) * 1024 * 1024
     if entry.size and entry.size > max_bytes:
@@ -276,6 +271,8 @@ def _maybe_recover(
     if ok and recovery_quality.apply_recovery_result(
         finding, str(dest), "icat", expected_size=entry.size or finding.size_bytes
     ):
+        if recover_state is not None:
+            recover_state["count"] = recover_state.get("count", 0) + 1
         return
 
     # Shift+Delete NTFS: icat амжилтгүй бол ntfsundelete fallback.
@@ -287,9 +284,11 @@ def _maybe_recover(
                 device.dev_path, fs, device.details or {}
             )
         if named_recovery.recover_ntfs_inode(part, entry.inode, str(dest), file_name=finding.file_name):
-            recovery_quality.apply_recovery_result(
+            if recovery_quality.apply_recovery_result(
                 finding, str(dest), "ntfsundelete", expected_size=entry.size or finding.size_bytes
-            )
+            ):
+                if recover_state is not None:
+                    recover_state["count"] = recover_state.get("count", 0) + 1
 
 
 def _prepare_finding(finding: Finding, *, hash_content: bool = False) -> None:
@@ -304,10 +303,13 @@ def _prepare_finding(finding: Finding, *, hash_content: bool = False) -> None:
         finding.mime_type = metadata.guess_mime(finding.recovered_path, finding.file_name)
     elif finding.finding_type == FindingType.ACTIVE_FILE:
         content = (finding.meta or {}).get("content_path") or ""
-        if content and os.path.isfile(str(content)):
-            finding.mime_type = metadata.guess_mime(str(content), finding.file_name)
+        mime_guess = (finding.meta or {}).get("mime_guess")
+        if mime_guess:
+            finding.mime_type = str(mime_guess)
+        elif content and os.path.isfile(str(content)):
+            finding.mime_type = metadata.guess_mime(str(content), finding.file_name, use_file_command=False)
         else:
-            finding.mime_type = metadata.guess_mime("", finding.file_name)
+            finding.mime_type = metadata.guess_mime_fast(finding.file_name)
     else:
         finding.mime_type = metadata.guess_mime("", finding.file_name)
     _apply_risk(finding)
@@ -335,10 +337,14 @@ def _run_active_inventory(
     count = 0
     batch: list[Finding] = []
     seen: set[str] = set()
-    batch_size = 500
+    batch_size = 1000
+    mount_count = 0
 
     if mount_point:
-        for entry in active_files.scan_mount(mount_point):
+        live_entries = active_files.scan_mount(mount_point)
+        mount_count = len(live_entries)
+        total_live = max(mount_count, 1)
+        for idx, entry in enumerate(live_entries):
             key = entry.original_path.lower()
             if key in seen:
                 continue
@@ -348,23 +354,70 @@ def _run_active_inventory(
             batch.append(f)
             if len(batch) >= batch_size:
                 count += _flush_findings(db, batch)
+            if mount_count >= 500 and (idx + 1) % 2000 == 0:
+                pct = 10 + min(17.0, (idx + 1) / total_live * 17.0)
+                _progress(db, job, pct, f"Идэвхтэй файл {idx + 1}/{mount_count}")
 
-    # Mount + TSK хоёул — идэвхтэй файлыг бүрэн каталоглох.
-    for off in byte_offsets:
-        for entry in tsk.list_active_files(source_path, off):
-            key = (entry.name or "").replace("\\", "/").lower()
-            if not key or key in seen:
-                continue
-            seen.add(key)
-            f = _finding_from_entry(job.id, entry)
-            f.finding_type = FindingType.ACTIVE_FILE
-            _prepare_finding(f, hash_content=False)
-            batch.append(f)
-            if len(batch) >= batch_size:
-                count += _flush_findings(db, batch)
+    if mount_count == 0:
+        for off in byte_offsets:
+            for entry in tsk.list_active_files(source_path, off):
+                key = (entry.name or "").replace("\\", "/").lower()
+                if not key or key in seen:
+                    continue
+                seen.add(key)
+                f = _finding_from_entry(job.id, entry)
+                f.finding_type = FindingType.ACTIVE_FILE
+                _prepare_finding(f, hash_content=False)
+                batch.append(f)
+                if len(batch) >= batch_size:
+                    count += _flush_findings(db, batch)
 
     count += _flush_findings(db, batch)
-    logger.info("[scan %s] идэвхтэй файл: %d", job.id, count)
+    logger.info("[scan %s] идэвхтэй файл: %d (mount=%d)", job.id, count, mount_count)
+    return count
+
+
+def _run_deleted_inventory(
+    db,
+    job: ScanJob,
+    source_path: str,
+    byte_offsets: list[int],
+    options: dict,
+    device: Device | None,
+) -> int:
+    """Устгагдсан файлуудыг batch-ээр бүртгэнэ; сэргээлт тоогоор хязгаарлана."""
+    count = 0
+    batch: list[Finding] = []
+    batch_size = 1000
+    recover_state = {"count": 0}
+    processed = 0
+
+    for off in byte_offsets:
+        entries = tsk.list_deleted(source_path, off)
+        for entry in entries:
+            path = entry.name.replace("\\", "/")
+            file_name = os.path.basename(path.rstrip("/")) or entry.name
+            if recovery_quality.is_junk_recovery_name(file_name, path):
+                continue
+            f = _finding_from_entry(job.id, entry)
+            f.finding_type = FindingType.DELETED_FILE
+            entry.deleted = True
+            _maybe_recover(source_path, off, entry, f, options, device, recover_state)
+            _prepare_finding(f, hash_content=f.recovered)
+            batch.append(f)
+            processed += 1
+            if len(batch) >= batch_size:
+                count += _flush_findings(db, batch)
+            if processed % 2000 == 0:
+                _progress(db, job, 28 + min(10.0, processed / 20000 * 10), f"Устгагдсан {processed}…")
+
+    count += _flush_findings(db, batch)
+    logger.info(
+        "[scan %s] устгагдсан файл: %d (сэргээсэн %d)",
+        job.id,
+        count,
+        recover_state.get("count", 0),
+    )
     return count
 
 
@@ -388,7 +441,6 @@ def _apply_risk(finding: Finding) -> None:
         "risk_integrity": risk.integrity,
         "risk_availability": risk.availability,
         "risk_information_types": risk.information_types,
-        "risk_report": risk.report,
     }
 
 
@@ -399,10 +451,18 @@ def _finalize_finding(db, finding: Finding) -> None:
     db.commit()
 
 
-def _run_named_recovery(db, job: ScanJob, source_path: str, fs_type: str) -> int:
+def _run_named_recovery(db, job: ScanJob, source_path: str, fs_type: str, options: dict) -> int:
     """ntfsundelete / extundelete — анхны файлын нэр, замтай сэргээлт."""
     dest = settings.recovered_dir / f"scan_{job.id}" / "named"
-    named_files = named_recovery.scan_by_filesystem(source_path, fs_type, str(dest))
+    max_bytes = int(options.get("max_recover_size_mb", 512)) * 1024 * 1024
+    named_files = named_recovery.scan_by_filesystem(
+        source_path,
+        fs_type,
+        str(dest),
+        recover=bool(options.get("recover_files", True)),
+        max_recover=int(options.get("max_recover_count", 100)),
+        max_bytes=max_bytes,
+    )
     existing = db.query(Finding).filter(Finding.scan_id == job.id).all()
     by_norm_path = {
         recovery_quality.normalize_recovery_path(f.original_path or f.file_name): f for f in existing
@@ -480,15 +540,16 @@ def _run_named_recovery(db, job: ScanJob, source_path: str, fs_type: str) -> int
             source="ntfsundelete",
         )
         if nf.inode and not all([finding.mtime, finding.atime, finding.ctime, finding.crtime]):
-            ts = tsk.get_inode_timestamps(source_path, nf.inode, 0)
-            metadata.apply_mac_to_finding(
-                finding,
-                mtime=ts.get("mtime"),
-                atime=ts.get("atime"),
-                ctime=ts.get("ctime"),
-                crtime=ts.get("crtime"),
-                source="istat",
-            )
+            if finding.recovered:
+                ts = tsk.get_inode_timestamps(source_path, nf.inode, 0)
+                metadata.apply_mac_to_finding(
+                    finding,
+                    mtime=ts.get("mtime"),
+                    atime=ts.get("atime"),
+                    ctime=ts.get("ctime"),
+                    crtime=ts.get("crtime"),
+                    source="istat",
+                )
         _apply_risk(finding)
         db.add(finding)
         count += 1
@@ -606,8 +667,15 @@ def _run_recycle(db, job: ScanJob, mount_point: str | None) -> int:
 
 def _build_timeline(db, job: ScanJob) -> None:
     findings = db.query(Finding).filter(Finding.scan_id == job.id).all()
+    pending: list[TimelineEvent] = []
     for f in findings:
         for event in metadata.build_timeline_events(f):
             event.finding_id = f.id
-            db.add(event)
-    db.commit()
+            pending.append(event)
+            if len(pending) >= 3000:
+                db.add_all(pending)
+                db.commit()
+                pending.clear()
+    if pending:
+        db.add_all(pending)
+        db.commit()

@@ -125,7 +125,9 @@ def enrich_entry_timestamps(
     byte_offset: int = 0,
 ) -> None:
     """MAC timestamp дутуу бол istat-аар нөхнө."""
-    if all([entry.mtime, entry.atime, entry.ctime, entry.crtime]):
+    if entry.mtime and entry.atime:
+        return
+    if entry.mtime and entry.ctime:
         return
     ts = get_inode_timestamps(image_path, entry.inode, byte_offset)
     if ts.get("mtime") and not entry.mtime:
@@ -236,9 +238,16 @@ def list_deleted(image_path: str, byte_offset: int = 0) -> list[DeletedEntry]:
             _merge_pretty_into_body(by_inode[entry.inode], entry)
 
     entries = list(by_inode.values())
+    istat_budget = 250
     for entry in entries:
-        if entry.file_type == "r":
-            enrich_entry_timestamps(entry, image_path, byte_offset)
+        if entry.file_type != "r":
+            continue
+        if entry.mtime and entry.atime:
+            continue
+        if istat_budget <= 0:
+            break
+        enrich_entry_timestamps(entry, image_path, byte_offset)
+        istat_budget -= 1
     logger.info("TSK fls: %d устгагдсан файл (offset=%d)", len(entries), byte_offset)
     return entries
 

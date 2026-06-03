@@ -79,6 +79,7 @@ class ScanOptions(BaseModel):
     run_recycle: bool = True           # recycle/trash artifact
     run_named_tools: bool = True       # ntfsundelete / extundelete
     max_recover_size_mb: int = 512     # сэргээх файлын дээд хэмжээ
+    max_recover_count: int = 100       # scan бүрт сэргээх файлын дээд тоо
 
 
 class ScanCreate(BaseModel):

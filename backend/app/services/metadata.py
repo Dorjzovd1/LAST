@@ -27,17 +27,27 @@ __all__ = [
     "assess_risk",
     "build_timeline_events",
     "guess_mime",
+    "guess_mime_fast",
 ]
 
 
-def guess_mime(path: str, file_name: str = "") -> str:
+def guess_mime(path: str, file_name: str = "", *, use_file_command: bool = True) -> str:
     """MIME төрлийг `file` команд эсвэл өргөтгөлөөр тодорхойлно."""
-    if path and os.path.exists(path) and tools.is_available("file"):
+    if (
+        use_file_command
+        and path
+        and os.path.exists(path)
+        and tools.is_available("file")
+    ):
         result = tools.run(["file", "--brief", "--mime-type", path])
         if result.ok and result.stdout.strip():
             return result.stdout.strip()
-    name = file_name or path
-    mime, _ = mimetypes.guess_type(name)
+    return guess_mime_fast(file_name or path)
+
+
+def guess_mime_fast(file_name: str) -> str:
+    """Зөвхөн өргөтгөлөөр MIME — mount walk зэрэг масс каталогид хурдан."""
+    mime, _ = mimetypes.guess_type(file_name)
     return mime or "application/octet-stream"
 
 

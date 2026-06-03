@@ -100,7 +100,7 @@ def scan_mount(mount_root: str | None, *, max_files: int = 200_000) -> list[Live
                     meta={
                         "module": "active_file_inventory",
                         "scan_method": "mount_walk",
-                        "mime_guess": metadata.guess_mime(full, fn),
+                        "mime_guess": metadata.guess_mime_fast(fn),
                         "on_device": True,
                     },
                 )

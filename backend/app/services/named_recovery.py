@@ -58,8 +58,15 @@ def _basename(path: str) -> str:
 # --------------------------------------------------------------------------- #
 # NTFS — ntfsundelete
 # --------------------------------------------------------------------------- #
-def scan_ntfs(source_path: str, dest_dir: str) -> list[NamedFile]:
-    """`ntfsundelete -l` жагсаалтаас устгагдсан файлуудыг нэртэй нь сэргээнэ."""
+def scan_ntfs(
+    source_path: str,
+    dest_dir: str,
+    *,
+    recover: bool = True,
+    max_recover: int = 100,
+    max_bytes: int = 512 * 1024 * 1024,
+) -> list[NamedFile]:
+    """`ntfsundelete -l` жагсаалтаас устгагдсан файлуудыг metadata (+ сонголтоор сэргээлт)."""
     if not tools.is_available("ntfsundelete"):
         logger.info("ntfsundelete байхгүй — алгасав.")
         return []
@@ -71,6 +78,7 @@ def scan_ntfs(source_path: str, dest_dir: str) -> list[NamedFile]:
 
     Path(dest_dir).mkdir(parents=True, exist_ok=True)
     results: list[NamedFile] = []
+    recovered_n = 0
 
     for line in listing.stdout.splitlines():
         if not line.strip() or line.strip().lower().startswith("inode"):
@@ -103,31 +111,42 @@ def scan_ntfs(source_path: str, dest_dir: str) -> list[NamedFile]:
             except ValueError:
                 deleted_time = None
 
-        mac = tsk.get_inode_timestamps(source_path, inode, 0)
+        mac: dict[str, datetime | None] = {}
+        if deleted_time:
+            mac["ctime"] = deleted_time
         safe = re.sub(r"[^\w.\-]", "_", _basename(name))[:120]
         out = Path(dest_dir) / f"{inode}_{safe}"
-        rec = tools.run(
-            ["ntfsundelete", "-f", "-u", "-i", inode, "-o", str(out), source_path],
-            timeout=300,
-        )
         recovered = ""
-        if out.exists():
-            ok, _reason = recovery_quality.validate_recovered_file(str(out), _basename(name), expected_size=size, strict=True)
-            if ok:
-                recovered = str(out)
-            else:
-                try:
-                    out.unlink(missing_ok=True)
-                except OSError:
-                    pass
-        if not rec.ok and not recovered:
-            logger.debug("ntfsundelete inode %s алдаа: %s", inode, rec.stderr.strip())
+        if recover and recovered_n < max_recover and (not size or size <= max_bytes):
+            rec = tools.run(
+                ["ntfsundelete", "-f", "-u", "-i", inode, "-o", str(out), source_path],
+                timeout=300,
+            )
+            if out.exists():
+                ok, _reason = recovery_quality.validate_recovered_file(
+                    str(out), _basename(name), expected_size=size, strict=True
+                )
+                if ok:
+                    recovered = str(out)
+                    recovered_n += 1
+                else:
+                    try:
+                        out.unlink(missing_ok=True)
+                    except OSError:
+                        pass
+            if not rec.ok and not recovered:
+                logger.debug("ntfsundelete inode %s алдаа: %s", inode, rec.stderr.strip())
+            if recovered and not mac.get("mtime"):
+                ts = tsk.get_inode_timestamps(source_path, inode, 0)
+                for key, val in ts.items():
+                    if val and not mac.get(key):
+                        mac[key] = val
 
         results.append(
             NamedFile(
                 original_path=orig,
                 file_name=_basename(name),
-                size=size if recovered else 0,
+                size=size,
                 recovered_path=recovered,
                 source_tool="ntfsundelete",
                 inode=inode,
@@ -221,11 +240,25 @@ def recover_ntfs_inode(source_path: str, inode: str, dest_path: str, *, file_nam
     return True
 
 
-def scan_by_filesystem(source_path: str, fs_type: str, dest_dir: str) -> list[NamedFile]:
+def scan_by_filesystem(
+    source_path: str,
+    fs_type: str,
+    dest_dir: str,
+    *,
+    recover: bool = True,
+    max_recover: int = 100,
+    max_bytes: int = 512 * 1024 * 1024,
+) -> list[NamedFile]:
     """FS төрлөөс хамаарч нэртэй сэргээлтийн хэрэгслийг сонгоно."""
     fs = (fs_type or "").lower()
     if fs in ("ntfs", "exfat"):
-        return scan_ntfs(source_path, dest_dir)
+        return scan_ntfs(
+            source_path,
+            dest_dir,
+            recover=recover,
+            max_recover=max_recover,
+            max_bytes=max_bytes,
+        )
     if fs in ("ext2", "ext3", "ext4"):
         return scan_ext(source_path, dest_dir)
     if fs in ("vfat", "fat", "fat32", "msdos"):
