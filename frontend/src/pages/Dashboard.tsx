@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { api } from "../api/client";
 import type { DetectedDevice, Device } from "../api/types";
 import { useEvents } from "../lib/events";
-import { formatBytes } from "../lib/format";
+import { formatBytes, formatDate } from "../lib/format";
 import Overview from "../components/Overview";
 
 export default function Dashboard() {
@@ -189,6 +189,7 @@ function RegisteredDevices({
               <th>Зам</th>
               <th>Нэр</th>
               <th>Хэмжээ</th>
+              <th>Бүртгэсэн</th>
               <th>Төлөв</th>
               <th>Read-only</th>
               <th></th>
@@ -200,6 +201,7 @@ function RegisteredDevices({
                 <td className="mono">{d.dev_path}</td>
                 <td>{d.name || "—"}</td>
                 <td>{formatBytes(d.size_bytes)}</td>
+                <td className="mono">{formatDate(d.created_at)}</td>
                 <td>
                   <span className={`state state-${d.state}`}>{d.state}</span>
                 </td>

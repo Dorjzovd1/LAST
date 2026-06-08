@@ -21,7 +21,7 @@ def detect_devices() -> list[dict]:
 
 @router.get("", response_model=list[DeviceOut], summary="Бүртгэгдсэн төхөөрөмжүүд")
 def list_devices(db: Session = Depends(get_db)) -> list[Device]:
-    return db.query(Device).order_by(Device.id.desc()).all()
+    return db.query(Device).order_by(Device.created_at.desc()).all()
 
 
 @router.get("/{device_id}", response_model=DeviceOut)
